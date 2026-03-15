@@ -115,23 +115,20 @@ def upload_logo():
     if not userId or not authToken:
         return jsonify({'error': 'Nedostaju podaci'}), 400
 
-    xano_url = f'https://x8ki-letl-twmt.n7.xano.io/api:YgSxZfYk/podesavanja/logo/{userId}'
     try:
-        response = requests.patch(
-            xano_url,
-            headers={
-                'Authorization': f'Bearer {authToken}',
-                'Content-Type': 'application/json'
-            },
-            json={
-                "putanja": logoName
-            }
-        )
-        if response.status_code != 200:
-            return jsonify({'error': 'Xano error', 'details': response.text}), response.status_code
+        with app.app_context():
+            # Ažuriraj putanja_za_logo u users tabeli
+            update_query = text("""
+                UPDATE users
+                SET putanja_za_logo = :logo_name
+                WHERE id = :user_id
+            """)
+            db.session.execute(update_query, {'logo_name': logoName, 'user_id': int(userId)})
+            db.session.commit()
 
         return jsonify({'message': 'Logo uploaded successfully', 'filename': filename}), 200
     except Exception as e:
+        db.session.rollback()
         return jsonify({'error': str(e)}), 500
 
 
