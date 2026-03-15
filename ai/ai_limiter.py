@@ -34,11 +34,11 @@ def get_user_type(user_id, owner_id):
         return "employees"
 
 
-def get_ai_info(user_id, auth_token):
+def get_ai_info(user_id, auth_token, db):
     """
-    Dohvata kompletan ai_info objekat iz Xano-a.
+    Dohvata kompletan ai_info objekat iz baze podataka.
     
-    Xano vraća:
+    Vraća:
     {
         "id": owner_id,
         "ai_info": {
@@ -50,28 +50,37 @@ def get_ai_info(user_id, auth_token):
             "llm-switch": "default" | "jeftin"
         }
     }
-    
-    Returns: kompletna struktura sa "id" i "ai_info"
     """
     try:
-        url = f'https://x8ki-letl-twmt.n7.xano.io/api:YgSxZfYk/ai/info/{user_id}'
-        response = requests.get(
-            url,
-            headers={
-                'Authorization': f'Bearer {auth_token}',
-                'Content-Type': 'application/json'
-            }
-        )
+        from sqlalchemy import text
         
-        if response.status_code == 200:
-            data = response.json()
-            # Vraća kompletan objekat sa "id" i "ai_info"
-            return data
-        else:
-            print(f"❌ Greška pri dohvatanju ai/info: {response.status_code}")
+        # Konvertuj user_id u integer ako je string
+        user_id = int(user_id)
+        
+        # Dohvati korisnika iz baze
+        user_query = text("""
+            SELECT id, ai_info FROM users WHERE id = :id
+        """)
+        user_result = db.session.execute(user_query, {'id': user_id}).fetchone()
+        
+        if not user_result:
+            print(f"❌ Korisnik {user_id} nije pronađen")
             return None
+        
+        # Parseri ai_info
+        ai_info = user_result[1]
+        if isinstance(ai_info, str):
+            ai_info = json.loads(ai_info) if ai_info else {}
+        elif not isinstance(ai_info, dict):
+            ai_info = {}
+        
+        # Vrati u istoj strukturi kao Xano
+        return {
+            "id": user_result[0],
+            "ai_info": ai_info
+        }
     except Exception as e:
-        print(f"❌ Greška pri dohvatanju ai_info: {str(e)}")
+        print(f"❌ Greška pri dohvatanju ai_info iz baze: {str(e)}")
         return None
 
 
@@ -220,10 +229,10 @@ def check_and_select_model(user_type, limits, usage, llm_switch):
     }
 
 
-def check_and_increment_ai_usage(user_id, auth_token):
+def check_and_increment_ai_usage(user_id, auth_token, db):
     """
     Glavna funkcija koja:
-    1. Dohvata ai_info sa Xano-a (sadrži "id" vlasnika i "ai_info" strukturu)
+    1. Dohvata ai_info iz baze (sadrži "id" vlasnika i "ai_info" strukturu)
     2. Određuje tip korisnika (owner ili employee)
     3. Dohvata dnevnu upotrebu vlasnika
     4. Proverava limite
@@ -239,8 +248,8 @@ def check_and_increment_ai_usage(user_id, auth_token):
     }
     """
     
-    # Dohvati ai_info iz Xano-a (sadrži "id" i "ai_info")
-    ai_info_data = get_ai_info(user_id, auth_token)
+    # Dohvati ai_info iz baze (sadrži "id" i "ai_info")
+    ai_info_data = get_ai_info(user_id, auth_token, db)
     if not ai_info_data:
         return {
             "allowed": False,

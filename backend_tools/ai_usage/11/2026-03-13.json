@@ -1,0 +1,14 @@
+{
+  "owner": {
+    "llama3": 0,
+    "llama4": 0
+  },
+  "employees": {
+    "llama3": 5,
+    "llama4": 0
+  },
+  "bookings": {
+    "llama3": 0,
+    "llama4": 0
+  }
+}

@@ -1,48 +1,89 @@
-import requests
-from flask import Flask, jsonify, request, send_from_directory
-from flask_jwt_extended import JWTManager, create_access_token, get_jwt, jwt_required, get_jwt_identity
-from flask_cors import CORS
-import smtplib
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
 import os
+from flask import Flask, jsonify, request
+from flask_cors import CORS
+from flask_sqlalchemy import SQLAlchemy
+from flask_jwt_extended import JWTManager
+from dotenv import load_dotenv
+from routes.auth import auth_bp
+from datetime import timedelta, datetime
+import requests
+from sqlalchemy import text
 import json
-from werkzeug.utils import secure_filename
 import secrets
-from apscheduler.schedulers.background import BackgroundScheduler
-from datetime import datetime
-import time
-from backend_tools.askAI import askAI
-from backend_tools.chat_manager import (
+from mailManager import send_confirmation_email, send_email_to_workers, html_head
+from ai.askAI import askAI
+from ai.chat_manager import (
     create_new_chat, save_chat_message, load_chat, 
     get_user_chats, delete_chat, rename_chat
 )
-from backend_tools.ai_limiter import check_and_increment_ai_usage
-from dotenv import load_dotenv
+from ai.ai_limiter import check_and_increment_ai_usage
+from routes.aiInfo import get_ai_data_for_user
 
-# Učitaj .env fajl
+# Učitavanje .env fajla
 load_dotenv()
 
-# Validacija SMTP kredencijala
-def verify_smtp_config():
-    """Proverava da li su SMTP kredencijali pravilno učitani iz .env"""
-    required_vars = ['SMTP_SERVER', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASSWORD']
+def env_verify():
+    required_vars = ['SMTP_SERVER', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASSWORD', 'DATABASE', 'PORT', 'SQL_USER', 'SQL_PWD', 'VPS_IP']
     missing_vars = [var for var in required_vars if not os.getenv(var)]
     
     if missing_vars:
-        print(f"⚠️  UPOZORENJE: Nedostaju sledeće SMTP varijable u .env: {', '.join(missing_vars)}")
+        print(f"⚠️  UPOZORENJE: Nedostaju sledeće varijable u .env: {', '.join(missing_vars)}")
         print("   Molimo kreirajte .env fajl na osnovu .env.example")
         return False
     
-    print("✅ SMTP konfiguracija je uspešno učitana iz .env")
+    print("✅ .env je uspesno ucitan")
     return True
 
-
+# Kreiranje Flask aplikacije
 app = Flask(__name__)
 CORS(app)
+env_verify()
 
-# Proverava SMTP konfiguraciju pri startu
-verify_smtp_config()
+# JWT Konfiguracija
+app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET', 'default-secret-key-promenite-u-env')
+app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(days=30)
+jwt = JWTManager(app)
+
+# Konfiguracija baze za SQLAlchemy
+app.config['SQLALCHEMY_DATABASE_URI'] = (
+    f"postgresql://{os.getenv('SQL_USER')}:{os.getenv('SQL_PWD')}"
+    f"@{os.getenv('VPS_IP')}:{os.getenv('PORT')}/{os.getenv('DATABASE')}"
+)
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+db = SQLAlchemy(app)
+
+
+
+
+# Registracija blueprint-a za autentifikaciju
+from routes.auth import auth_bp
+app.register_blueprint(auth_bp, url_prefix="/api/auth")
+
+from routes.zakazi import zakazi_bp
+app.register_blueprint(zakazi_bp, url_prefix="/api/zakazi")
+
+from routes.podesavanja import podesavnja_bp
+app.register_blueprint(podesavnja_bp, url_prefix="/api/podesavanja")
+
+from routes.zaposleni import zaposleni_bp
+app.register_blueprint(zaposleni_bp, url_prefix="/api/zaposleni")
+
+from routes.brend import brend_bp
+app.register_blueprint(brend_bp, url_prefix="/api/brend")
+
+from routes.aiInfo import aiInfo_bp
+app.register_blueprint(aiInfo_bp, url_prefix="/api/ai/info")
+
+from routes.zakazivanja import zakazivanja_bp
+app.register_blueprint(zakazivanja_bp, url_prefix="/api/zakazivanja")
+
+
+
+from routes.tests import tests_bp
+app.register_blueprint(tests_bp, url_prefix='/api/tests')
+
+
 
 
 
@@ -52,536 +93,334 @@ verify_smtp_config()
 def hello():
     return jsonify({"message": "Zdravo iz Flask API-ja!"})
 
-
-
-UPLOAD_FOLDER = os.path.join(os.getcwd(), 'public', 'logos')
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-@app.route('/api/novi_logo', methods=['POST'])
-def upload_logo():
-    if 'file' not in request.files:
-        return jsonify({'error': 'No file part'}), 400
-
-    file = request.files['file']
-    if file.filename == '':
-        return jsonify({'error': 'No selected file'}), 400
-
-    filename = secure_filename(file.filename)
-    file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
-
-    userId = request.form.get('id')
-    authToken = request.form.get('authToken')
-    logoName = f'{file.filename}'
-
-    if not userId or not authToken:
-        return jsonify({'error': 'Nedostaju podaci'}), 400
-
-    xano_url = f'https://x8ki-letl-twmt.n7.xano.io/api:YgSxZfYk/podesavanja/logo/{userId}'
-    try:
-        response = requests.patch(
-            xano_url,
-            headers={
-                'Authorization': f'Bearer {authToken}',
-                'Content-Type': 'application/json'
-            },
-            json={
-                "putanja": logoName
-            }
-        )
-        if response.status_code != 200:
-            return jsonify({'error': 'Xano error', 'details': response.text}), response.status_code
-
-        return jsonify({'message': 'Logo uploaded successfully', 'filename': filename}), 200
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-@app.route("/api/logo/<filename>")
-def serve_logo(filename):
-    if filename == "/images/logo.webp":
-        return send_from_directory("public/Images", "logo.webp")
-    
-    safe_name = secure_filename(filename)
-    putanja = f'public/logos'
-    print(putanja)
-    return send_from_directory(putanja, safe_name)
-
-
-html_head = """
-<head>
-    <!-- Google Fonts: Poppins -->
-    <link href="https://fonts.googleapis.com/css2?family=Poppins&display=swap" rel="stylesheet" />
-
-    <style type="text/css">
-    body {
-        margin: 0;
-        padding: 0;
-        background-color: #ffffff;
-        color: #000000;
-        font-family: 'Poppins', sans-serif;
-    }
-
-    *{
-        color: #000 !important;
-    }
-
-    .content {
-        padding: 20px;
-    }
-
-    a {
-        text-decoration: none;
-        color: inherit;
-    }
-
-    .btn {
-        display: inline-block;
-        padding: 12px 24px;
-        background-color: #3b82f6;
-        color: #ffffff;
-        font-weight: 600;
-        text-transform: uppercase;
-        border-radius: 5px;
-        margin-top: 15px;
-        text-align: center;
-    }
-
-    .btn:hover {
-        background-color: #000000;
-        color: #3b82f6 !important;
-    }
-
-    @media (prefers-color-scheme: dark) {
-        body {
-            background-color: #000000 !important;
-            color: #ffffff !important;
-        }
-
-        *{
-            color: #fff !important;
-        }
-
-        .btn {
-            background-color: #3b82f6;
-            color: #000000;
-        }
-
-        .btn:hover {
-            background-color: #ffffff;
-            color: #3b82f6;
-        }
-    }
-    </style>
-</head>"""
-
-
-
-def send_confirmation_email(to_email, poruka, subject, html_poruka=None ):
-    try:
-        msg = MIMEMultipart("alternative")
-        msg["Subject"] = subject
-        msg["From"] = "notifications@mojtermin.site"
-        msg["To"] = to_email
-
-        # Dodaj tekstualni deo (plain text)
-        part1 = MIMEText(poruka, "plain")
-        msg.attach(part1)
-
-        # Dodaj HTML deo ako postoji
-        if html_poruka:
-            part2 = MIMEText(html_poruka, "html")
-            msg.attach(part2)
-
-        # Učitaj SMTP kredencijale
-        smtp_server = os.getenv('SMTP_SERVER')
-        smtp_port = int(os.getenv('SMTP_PORT', 587))
-        smtp_user = os.getenv('SMTP_USER')
-        smtp_password = os.getenv('SMTP_PASSWORD')
-
-        # Validacija kredencijala
-        if not all([smtp_server, smtp_port, smtp_user, smtp_password]):
-            print("❌ GREŠKA: Nedostaju SMTP kredencijali u .env fajlu!")
-            print(f"   SMTP_SERVER: {bool(smtp_server)}")
-            print(f"   SMTP_PORT: {bool(smtp_port)}")
-            print(f"   SMTP_USER: {bool(smtp_user)}")
-            print(f"   SMTP_PASSWORD: {bool(smtp_password)}")
-            return False
-
-        with smtplib.SMTP(smtp_server, smtp_port) as server:
-            server.starttls()
-            server.login(smtp_user, smtp_password)
-            server.send_message(msg)
-        
-        print(f"✅ Email poslat na: {to_email}")
-        return True
-
-    except smtplib.SMTPAuthenticationError as e:
-        print(f"❌ SMTP autentifikacijska greška: {str(e)}")
-        return False
-    except smtplib.SMTPException as e:
-        print(f"❌ SMTP greška: {str(e)}")
-        return False
-    except Exception as e:
-        print(f"❌ Neočekivana greška pri slanju emaila: {str(e)}")
-        return False
-
-
-
-def send_email_to_workers(vlasnikId, preduzeceId, naslov, token, lokacija, preduzece, datum_i_vreme, zakazivac, stariPodaci=None):
-    print(f"\n=== SLANJE MEJLOVA ZAPOSLENIMA ===")
-    print(f"vlasnikId: {vlasnikId}, naslov: {naslov}, lokacija: {lokacija}")
-    zaposleni = []
-    xano_url = f'https://x8ki-letl-twmt.n7.xano.io/api:YgSxZfYk/zaposleni/{vlasnikId}/rxyctdufvyigubohinuvgycftdxrytcufyvgubh'
-    try:
-        print(f"Učitavanje zaposlenih sa Xano API-ja...")
-        res = requests.get(xano_url, headers={'Content-Type': 'application/json'})
-        print(f"Xano status: {res.status_code}")
-        if res.status_code != 200:
-            print(f"ERROR: Xano error pri učitavanju zaposlenih: {res.status_code} - {res.text}")
-            return False
-        
-        data = res.json()        
-
-        # Dodaj vlasnika
-        vlasnik = data.get('vlasnik', {})
-        if vlasnik.get('email'):
-            zaposleni.append({'email': vlasnik.get('email'), 'id': vlasnik.get('id')})
-            print(f"Dodat vlasnik: {vlasnik.get('email')}")
-
-        # Prođi kroz sve grupe korisnika (zaposleni po firmama)
-        korisnici = data.get('korisnici', [])
-        print(f"Broj grupa korisnika: {len(korisnici)}")
-        for grupa in korisnici:
-            for osoba in grupa:
-                if str(osoba.get('zaposlen_u')) == str(lokacija):
-                    email = osoba.get('email')
-                    id_korisnika = osoba.get('id')
-                    if email:
-                        zaposleni.append({'email': email, 'id': id_korisnika})
-                        print(f"Dodan zaposlenik: {email}")
-
-
-        print(f"Ukupno zaposlenih za obaveštavanja: {len(zaposleni)}")
-        # Slanje mejlova svakom od njih
-        for z in zaposleni:
-            email = z['email']
-            korisnik_id = z['id']
-            if naslov == 'Novo zakazivanje':
-                send_confirmation_email(
-                    to_email=email,
-                    poruka=f"""
-                        Novi termin zakazan u {preduzece} za {datum_i_vreme}. Klijent: {zakazivac}.
-                        \nNa linku ispod možete izmeniti vreme i datum termina, potvrditi ga ili otkazati.
-                        \nhttps://mojtermin.site/zakazi/{vlasnikId}/izmena/{token}
-                    """,
-                    subject=f"{naslov} - {preduzece}",
-                    html_poruka=f"""
-                        <html>
-                            {html_head}
-                            <body>
-                                <div class="content">
-                                    <p>Novi termin zakazan u {preduzece} za {datum_i_vreme}. Klijent: {zakazivac}</p>
-                                    <a href="https://mojtermin.site/zakazi/{vlasnikId}/izmeni/{token}/potvrda/{korisnik_id}" class="btn">Potvrdi termin</a>
-                                    <a href="https://mojtermin.site/zakazi/{vlasnikId}/izmeni/{token}" class="btn">Izmenite termin</a>
-                                </div>
-                            </body>
-                        </html>
-                    """
-                )
-
-            elif naslov == 'Izmena termina':
-                send_confirmation_email(
-                    to_email=email,
-                    poruka=f"""
-                        Izmenjen termin zakazan u {preduzece} za {datum_i_vreme}. Izmenio ga je {zakazivac}.
-                        \nNa linku ispod možete izmeniti vreme i datum termina, potvrditi ga ili otkazati.
-                        \nhttps://mojtermin.site/zakazi/{vlasnikId}/izmena/{token}
-                        \nStari podaci: 
-                        \nIme: {stariPodaci.get("ime", "N/A")},
-                        \nLokacija: {stariPodaci.get("lokacija", "N/A")},
-                        \nVreme: {stariPodaci.get('dan')}.{stariPodaci.get('mesec')}.{stariPodaci.get('godina')} u {stariPodaci.get('vreme')},
-                        \nTrajanje termina: {stariPodaci.get('trajanje', 'N/A')}
-                    """,
-                    subject=f"{naslov}",
-                    html_poruka=f"""
-                        <html>
-                            {html_head}
-                            <body>
-                                <div class="content">
-                                    <p>Izmenjen termin zakazan u {preduzece} za {datum_i_vreme}. Izmenio ga je {zakazivac}</p>
-                                    <a href="https://mojtermin.site/zakazi/{vlasnikId}/izmeni/{token}/potvrda/{korisnik_id}" class="btn">Potvrdi termin</a>
-                                    <a href="https://mojtermin.site/zakazi/{vlasnikId}/izmeni/{token}" class="btn">Izmenite termin</a>
-                                    <p style="margin-top: 20px;">Stari podaci:</p>
-                                    <ul>
-                                        <li>Ime: {stariPodaci.get("ime", "N/A")}</li>
-                                        <li>Lokacija: {stariPodaci.get("lokacija", "N/A")}</li>
-                                        <li>Vreme: {stariPodaci.get('dan')}.{stariPodaci.get('mesec')}.{stariPodaci.get('godina')} u {stariPodaci.get('vreme')}</li>
-                                        <li>Trajanje termina: {stariPodaci.get('trajanje', 'N/A')}</li>
-                                    </ul>
-                                </div>
-                            </body>
-                        </html>
-                    """
-                )
-            
-            elif naslov == 'Izmena termina - nova lokacija':
-                send_confirmation_email(
-                    to_email=email,
-                    poruka=f"""Termin koji je bio zakazan na drugom radnom mestu je izmenjen i odabrano je novo radno mesto - {preduzece} za {datum_i_vreme}. Izmenio ga je {zakazivac}.
-                        \nNa linku ispod možete izmeniti vreme i datum termina, potvrditi ga ili otkazati.
-                        \nhttps://mojtermin.site/zakazi/{vlasnikId}/izmena/{token}
-                        \nStari podaci: 
-                        \nIme: {stariPodaci.get("ime", "N/A")},
-                        \nLokacija: {stariPodaci.get("lokacija", "N/A")} (id),
-                        \nVreme: {stariPodaci.get('dan')}.{stariPodaci.get('mesec')}.{stariPodaci.get('godina')} u {stariPodaci.get('vreme')},
-                        \nTrajanje termina: {stariPodaci.get('trajanje', 'N/A')}
-                    """,
-                    subject=f"{naslov}",
-                    html_poruka=f"""
-                        <html>
-                            {html_head}
-                            <body>
-                                <div class="content">
-                                    <p>Termin koji je bio zakazan na drugom radnom mestu je izmenjen i odabrano je novo radno mesto - {preduzece} za {datum_i_vreme}. Izmenio ga je {zakazivac}.</p>
-                                    <a href="https://mojtermin.site/zakazi/{vlasnikId}/izmeni/{token}/potvrda/{korisnik_id}" class="btn">Potvrdi termin</a>
-                                    <a href="https://mojtermin.site/zakazi/{vlasnikId}/izmeni/{token}" class="btn">Izmenite termin</a>
-                                    <p style="margin-top: 20px;">Stari podaci:</p>
-                                    <ul>
-                                        <li>Ime: {stariPodaci.get("ime", "N/A")}</li>
-                                        <li>Lokacija: {stariPodaci.get("lokacija", "N/A")} (id)</li>
-                                        <li>Vreme: {stariPodaci.get('dan')}.{stariPodaci.get('mesec')}.{stariPodaci.get('godina')} u {stariPodaci.get('vreme')}</li>
-                                        <li>Trajanje termina: {stariPodaci.get('trajanje', 'N/A')}</li>
-                                    </ul>
-                                </div>
-                            </body>
-                        </html>
-                    """
-                )
-
-            elif naslov == 'Izmena termina na novu lokaciju':
-                send_confirmation_email(
-                    to_email=email,
-                    poruka=f"""Termin koji je bio zakazan na vašem radnom mestu je izmenjen i odabrano je novo radno mesto -  {preduzece}. Izmenio ga je {zakazivac}.
-                        \nStari podaci: 
-                        \nIme: {stariPodaci.get("ime", "N/A")},
-                        \nLokacija: {stariPodaci.get("lokacija", "N/A")} (id),
-                        \nVreme: {stariPodaci.get('dan')}.{stariPodaci.get('mesec')}.{stariPodaci.get('godina')} u {stariPodaci.get('vreme')},
-                        \nTrajanje termina: {stariPodaci.get('trajanje', 'N/A')}
-                    """,
-                    subject=f"{naslov}"
-                )
-            
-            elif naslov == 'Otkazivanje termina':
-                send_confirmation_email(
-                    to_email=email,
-                    poruka=f"Termin u {preduzece} za {datum_i_vreme} je otkazan od strane {zakazivac}.",
-                    subject=f"{naslov} - {preduzece}"
-                )
-
-        return True
-
-    except requests.exceptions.RequestException as e:
-        print(f"ERROR u send_email_to_workers: {str(e)}")
-        return False
-    except Exception as e:
-        print(f"NEOČEKIVANA GREŠKA u send_email_to_workers: {str(e)}")
-        return False
-
-
-
-
-
-@app.route('/api/potvrdi_termin', methods=['POST'])
-def potvrdiTermin():
-    data = request.json
-    termin = data.get('termin')
-    auth_token = data.get('authToken')
-
-    if not termin or not auth_token:
-        return jsonify({'error': 'Nedostaju podaci'}), 400
-
-    termin_token = termin.get('token')
-    print(termin)
-    potvrdio = termin.get('potvrdio')
-    if not termin_token:
-        return jsonify({'error': 'Nedostaje token termina'}), 400
-    
-    xano_url = f'https://x8ki-letl-twmt.n7.xano.io/api:YgSxZfYk/zakazivanja/{termin_token}/potvrda'
-    try:
-        response = requests.patch(
-            xano_url,
-            headers={
-                'Authorization': f'Bearer {auth_token}',
-                'Content-Type': 'application/json'
-            },
-            json={
-                "potvrdio": potvrdio
-            }
-        )
-
-        if response.status_code == 200:
-            try:
-                poruka = f"""Poštovani,
-                    \nVaš termin u {response.json().get("ime_preduzeca").get("ime")} je potvrdio {response.json().get("potvrdio_zaposlen").get("username")}.
-                """
-                naslov = f"Potvrda termina - {response.json().get("ime_preduzeca").get("ime")}"
-
-                send_confirmation_email(response.json().get("email"), poruka, naslov)
-
-            except Exception as mail_err:
-                return jsonify({
-                    'status': response.status_code,
-                    'xano_response': response.json(),
-                    'mail_error': str(mail_err)
-                }), response.status_code
-
-        return jsonify({
-            'status': response.status_code,
-            'xano_response': response.json()
-        }), response.status_code
-
-    except requests.exceptions.RequestException as e:
-        return jsonify({'error': str(e)}), 500
-
-
-
 @app.route('/api/zakazi', methods=['POST'])
-def zakazi():
-    data = request.json
-    podaci = data.get('podaci')
-    odabrana_lokacija = podaci.get('lokacija')
-    token = secrets.token_urlsafe(10)
-    data['token'] = token
-
-    if not podaci:
-        return jsonify({'error': 'Nedostaju podaci'}), 400
-    
-    xano_url = f'https://x8ki-letl-twmt.n7.xano.io/api:YgSxZfYk/zakazi/{data.get("id")}'
+def zakazi_termin():
     try:
-        response = requests.post(xano_url, json=data, headers={'Content-Type': 'application/json'})
-
-        if response.status_code != 200:
-            return jsonify({'error': 'Xano error', 'message': response.text}), response.status_code
+        from app import db, app
         
-        res_json = response.json()
-
-
-        user = res_json.get('user', [{}])[0]
-        preduzece = user.get('ime_preduzeca')
-        lokacije = user.get('lokacije', [])
-
-
-        izabrana_lokacija = next((l for l in lokacije if str(l.get('id')) == str(odabrana_lokacija)), None)
-        adresa = izabrana_lokacija.get('adresa') if izabrana_lokacija else ''
-
-        datum_i_vreme = f"{podaci.get('dan')}.{int(podaci.get('mesec')) + 1}.{podaci.get('godina')} u {podaci.get('vreme')}"
-        subject = f"Zakazivanje termina - {preduzece}"
-        poruka = f"""Poštovani,
-            \nVaš termin u {preduzece} je uspešno zakazan za {datum_i_vreme}, na adresi {adresa}. Dobićete obaveštenje kada neko potvrdi vaš termin.
-            \n Takođe možete izmeniti vreme i datum Vašeg termina na linku ispod. Nakon izmene očekujte ponovnu potvrdu.
-            \n https://mojtermin.site/zakazi/{data.get("id")}/izmeni/{token}
-            \n\nHvala što ste izabrali našu uslugu! Ovu uslugu je omogućio servis Moj Termin."""
-
-        html_poruka = f"""
-        <html>
-            {html_head}
-            <body>
-                <div class="content">
-                <h2>Poštovani,</h2>
-                <p>Vaš termin u {preduzece} je <b>uspešno zakazan</b> za <b>{datum_i_vreme}</b> na adresi <b>{adresa}</b>. Dobićete obaveštenje kada neko potvrdi vaš termin.</p>
-                <p>Takođe možete izmeniti vreme i datum Vašeg termina. Nakon izmene očekujte ponovnu potvrdu.</p>
-                <a href="https://mojtermin.site/zakazi/{data.get("id")}/izmeni/{token}" class="btn">Izmenite termin</a>
-                <p style="margin-top: 20px;">Hvala što ste izabrali našu uslugu! Ovu uslugu je omogućio servis <b><a href="https://mojtermin.site">Moj Termin</a></b>.</p>
-                </div>
-            </body>
-        </html>
-        """
-
-        # Slanje emaila sa error handling-om
+        # Čitanje JSON podataka iz request-a
+        data = request.get_json()
+        
+        # Ekstraktovanje poddata iz "podaci" objekta
+        podaci = data.get('podaci', {})
+        user_id = data.get('userId')
+        preduzece_id = podaci.get('lokacija')
+        
+        # Validacija obaveznih polja
+        if not podaci.get('email'):
+            return jsonify({
+                "success": False,
+                "error": "Email je obavezan"
+            }), 400
+        
+        # Validacija preduzece_id
+        if not preduzece_id:
+            return jsonify({
+                "success": False,
+                "error": "Lokacija (preduzece) je obavezna"
+            }), 400
+        
         try:
-            send_confirmation_email(
-                podaci.get('email'),
-                poruka,
-                subject,
-                html_poruka
-            )
-        except Exception as email_error:
-            print(f"❌ Greška pri slanju potvrde emaila: {str(email_error)}")
+            preduzece_id = int(preduzece_id)
+        except (ValueError, TypeError):
+            return jsonify({
+                "success": False,
+                "error": "Lokacija mora biti validan broj"
+            }), 400
         
-        print(f"\nUsulov userId == '0': {data.get('userId') == '0'}")
-        print(f"Vrednost userId: {data.get('userId')} (tip: {type(data.get('userId'))})")
-        if data.get("userId") == "0":
-            print(f"Slanje mejla zaposlenima...")
-            try:
-                send_email_to_workers(
-                    data.get("id"),
-                    odabrana_lokacija,
-                    'Novo zakazivanje',
-                    token,
-                    odabrana_lokacija,
-                    preduzece,
-                    datum_i_vreme,
-                    podaci.get('ime')
+        # Validacija i kreiranje datuma
+        try:
+            datum_rezervacije = podaci.get('datum_rezervacije', '').strip()
+            
+            # Pokušaj da parsam datum iz dela: YYYY-MM-DD
+            if datum_rezervacije:
+                date_parts = datum_rezervacije.split('-')
+                if len(date_parts) == 3:
+                    godina, mesec, dan = int(date_parts[0]), int(date_parts[1]), int(date_parts[2])
+                    
+                    if dan < 1 or dan > 31:
+                        return jsonify({
+                            "success": False,
+                            "error": f"Neispravan dan: {dan}. Dan mora biti između 1 i 31"
+                        }), 400
+                    
+                    # Kreiraj validan datum
+                    datum_rezervacije = f"{godina:04d}-{mesec:02d}-{dan:02d}"
+                    datetime.strptime(datum_rezervacije, '%Y-%m-%d')
+                else:
+                    return jsonify({
+                        "success": False,
+                        "error": "Neispravan format datuma. Očekujem YYYY-MM-DD"
+                    }), 400
+            else:
+                # Ako nema datum_rezervacije, koristi dan, mesec, godina
+                dan = podaci.get('dan', '')
+                mesec = podaci.get('mesec', '')
+                godina = podaci.get('godina', '')
+                
+                if not dan or not mesec or not godina:
+                    return jsonify({
+                        "success": False,
+                        "error": "Dan, mesec i godina su obavezni"
+                    }), 400
+                
+                dan = int(dan)
+                mesec = int(mesec) + 1  # mesec je 0-11 pa se dodaje 1
+                godina = int(godina)
+                
+                if dan < 1 or dan > 31 or mesec < 1 or mesec > 12 or godina < 2000:
+                    return jsonify({
+                        "success": False,
+                        "error": "Neispravan datum - dan (1-31), mesec (1-12) ili godina (≥2000)"
+                    }), 400
+                
+                datum_rezervacije = f"{godina:04d}-{mesec:02d}-{dan:02d}"
+                datetime.strptime(datum_rezervacije, '%Y-%m-%d')
+            
+        except ValueError as e:
+            return jsonify({
+                "success": False,
+                "error": f"Neispravan datum: {str(e)}"
+            }), 400
+        
+        # Generisanje tokena
+        token = secrets.token_urlsafe(10)
+        
+        with app.app_context():
+            # Proveravanje da li preduzeće postoji
+            preduzeca_check = text("SELECT vlasnik, ime FROM preduzeca WHERE id = :id")
+            preduzeca_result = db.session.execute(preduzeca_check, {'id': int(preduzece_id)}).fetchone()
+            
+            if not preduzeca_result:
+                return jsonify({
+                    "success": False,
+                    "error": "Preduzeće nije pronađeno"
+                }), 404
+            
+            vlasnik_id = preduzeca_result[0]
+            preduzece_ime = preduzeca_result[1]
+            
+            # Kreiranje novog zakazivanja
+            insert_query = text("""
+                INSERT INTO zakazivanja (
+                    ime_firme, ime, email, telefon, datum_rezervacije, vreme_rezervacije,
+                    usluga, opis, potvrdio, token, otkazano, created_at
+                ) VALUES (
+                    :ime_firme, :ime, :email, :telefon, :datum_rezervacije, :vreme_rezervacije,
+                    :usluga, :opis, :potvrdio, :token, :otkazano, :created_at
                 )
-            except Exception as worker_email_error:
-                print(f"❌ Greška pri slanju emaila zaposlenima: {str(worker_email_error)}")
-        else:
-            print(f"UserId je {data.get('userId')}, mejl zaposlenima se ne šalje")
+                RETURNING id, ime_firme, ime, email, telefon, datum_rezervacije, 
+                          vreme_rezervacije, usluga, opis, potvrdio, created_at
+            """)
+            
+            params = {
+                'ime_firme': int(preduzece_id),
+                'ime': podaci.get('ime'),
+                'email': podaci.get('email'),
+                'telefon': podaci.get('telefon'),
+                'datum_rezervacije': datum_rezervacije,
+                'vreme_rezervacije': podaci.get('vreme'),
+                'usluga': json.dumps(podaci.get('usluga', {})),
+                'opis': podaci.get('opis', ''),
+                'potvrdio': int(user_id) if user_id else None,
+                'token': token,
+                'otkazano': False,
+                'created_at': datetime.utcnow()
+            }
+            
+            # Izvršavanje insertovanja
+            result = db.session.execute(insert_query, params).fetchone()
+            db.session.commit()
+            
+            # Dohvatanje vlasnika preduzeca
+            vlasnik_query = text("""
+                SELECT id, username, email, brTel, paket FROM users WHERE id = :id
+            """)
+            vlasnik_info = db.session.execute(vlasnik_query, {'id': vlasnik_id}).fetchone()
+            
+            # Dohvatanje lokacije sa adresom
+            lokacija_query = text("""
+                SELECT adresa FROM preduzeca WHERE id = :id
+            """)
+            lokacija_info = db.session.execute(lokacija_query, {'id': int(preduzece_id)}).fetchone()
+            adresa = lokacija_info[0] if lokacija_info else ''
+            
+            # Formatiranje datuma i vremena
+            date_parts = datum_rezervacije.split('-')
+            godina, mesec, dan = int(date_parts[0]), int(date_parts[1]), int(date_parts[2])
+            datum_i_vreme = f"{dan}.{mesec}.{godina} u {podaci.get('vreme')}"
+            
+            # Slanje potvrde emaila zakazivačу
+            subject = f"Zakazivanje termina - {preduzece_ime}"
+            poruka = f"""Poštovani,
+            Vaš termin u {preduzece_ime} je uspešno zakazan za {datum_i_vreme}, na adresi {adresa}. Dobićete obaveštenje kada neko potvrdi vaš termin.
+            Takođe možete izmeniti vreme i datum Vašeg termina na linku ispod. Nakon izmene očekujte ponovnu potvrdu.
+            https://mojtermin.site/zakazi/{vlasnik_id}/izmeni/{token}
+            
+            Hvala što ste izabrali našu uslugu! Ovu uslugu je omogućio servis Moj Termin."""
 
+            html_poruka = f"""
+            <html>
+                {html_head}
+                <body>
+                    <div class="content">
+                    <h2>Poštovani,</h2>
+                    <p>Vaš termin u {preduzece_ime} je <b>uspešno zakazan</b> za <b>{datum_i_vreme}</b> na adresi <b>{adresa}</b>. Dobićete obaveštenje kada neko potvrdi vaš termin.</p>
+                    <p>Takođe možete izmeniti vreme i datum Vašeg termina. Nakon izmene očekujte ponovnu potvrdu.</p>
+                    <a href="https://mojtermin.site/zakazi/{vlasnik_id}/izmeni/{token}" class="btn">Izmenite termin</a>
+                    <p style="margin-top: 20px;">Hvala što ste izabrali našu uslugu! Ovu uslugu je omogućio servis <b><a href="https://mojtermin.site">Moj Termin</a></b>.</p>
+                    </div>
+                </body>
+            </html>
+            """
+
+            # Slanje emaila sa error handling-om
+            try:
+                send_confirmation_email(
+                    podaci.get('email'),
+                    poruka,
+                    subject,
+                    html_poruka
+                )
+            except Exception as email_error:
+                print(f"❌ Greška pri slanju potvrde emaila: {str(email_error)}")
+            
+            # Slanje mejla zaposlenima ako je userId postavljen (nije null)
+            if user_id is not None:
+                print(f"Slanje mejla zaposlenima...")
+                try:
+                    send_email_to_workers(
+                        vlasnik_id,
+                        'Novo zakazivanje',
+                        token,
+                        int(preduzece_id),
+                        preduzece_ime,
+                        datum_i_vreme,
+                        podaci.get('ime')
+                    )
+                except Exception as worker_email_error:
+                    print(f"❌ Greška pri slanju emaila zaposlenima: {str(worker_email_error)}")
+            else:
+                print(f"UserId je {user_id}, mejl zaposlenima se ne šalje")
+        
         return jsonify({
-            'status': response.status_code,
-            'xano_response': response.json(),
-            'app_response': 'Zakazivanje uspešno'
-        })
-    
-    except requests.exceptions.RequestException as e:
-        return jsonify({'error': str(e)}), 500
+            "success": True,
+            "message": "Zakazivanje uspešno",
+            "zakazivanje_id": result[0],
+            "token": token
+        }), 201
+        
     except Exception as e:
-        print(f"❌ Neočekivana greška u /api/zakazi: {str(e)}")
-        return jsonify({'error': f'Server greška: {str(e)}'}), 500
-
+        db.session.rollback()
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
 
 
 @app.route('/api/zakazi/izmena', methods=['POST'])
 def izmeniTermin():
-    data = request.json
-    podaci = data.get('podaci')
-    token = data.get('token')
-    odabrana_lokacija = podaci.get('lokacija')
-    stariPodaci = data.get('stariPodaci', {})
-    tipUlaska = data.get('tipUlaska')
-
-
-    if not podaci:
-        return jsonify({'error': 'Nedostaju podaci'}), 400
-    if not token:
-        return jsonify({'error': 'Nema tokena'}), 400
-    
-    xano_url = f'https://x8ki-letl-twmt.n7.xano.io/api:YgSxZfYk/zakazi/{token}/izmena'
+    """
+    Izmena zakazivanja u bazi podataka na osnovu tokena.
+    Ažurira podatke zakazivanja i šalje odgovarajuće mejlove.
+    """
     try:
-        response = requests.patch(xano_url, json=data, headers={'Content-Type': 'application/json'})
-
-        if response.status_code != 200:
-            return jsonify({'error': 'Xano error', 'message': response.text}), response.status_code
+        data = request.json
+        podaci = data.get('podaci', {})
+        token = data.get('token')
+        tip_ulaska = data.get('tipUlaska')
+        user_id = data.get('userId')
+        stari_podaci = data.get('stariPodaci', {})
         
-        res_json = response.json()
-
-        #p rint(res_json)
-        user = res_json.get('user', {})
-        preduzece = user.get('ime_preduzeca')
-        lokacije = user.get('lokacije', [])
-        datum_i_vreme = f"{podaci.get('dan')}.{int(podaci.get('mesec')) + 1}.{podaci.get('godina')} u {podaci.get('vreme')}"
-
-        subject = f"Izmena termina - {preduzece}"
+        # Validacija obaveznih polja
+        if not podaci:
+            return jsonify({'error': 'Nedostaju podaci'}), 400
+        if not token:
+            return jsonify({'error': 'Nema tokena'}), 400
         
-        if stariPodaci.get('lokacija') == odabrana_lokacija: #ista lokacjia
-            if tipUlaska == 2: #korisnik menja
-                poruka = f"""Poštovani,
+        with app.app_context():
+            # 1. Pronađi zakazivanje po tokenu
+            find_query = text("SELECT id, ime_firme FROM zakazivanja WHERE token = :token")
+            result = db.session.execute(find_query, {'token': token}).fetchone()
+            
+            if not result:
+                return jsonify({'error': 'Zakazivanje nije pronađeno'}), 404
+            
+            zakaz_id, ime_firme_id = result[0], result[1]
+            
+            # 2. Pripremi datum za ažuriranje
+            datum_rezervacije = None
+            if podaci.get('datum_rezervacije'):
+                datum_rezervacije = podaci.get('datum_rezervacije')
+            else:
+                dan = podaci.get('dan', '')
+                mesec = podaci.get('mesec', '')
+                godina = podaci.get('godina', '')
+                
+                if dan and mesec and godina:
+                    dan = int(dan)
+                    mesec = int(mesec) + 1  # mesec je 0-11
+                    godina = int(godina)
+                    datum_rezervacije = f"{godina:04d}-{mesec:02d}-{dan:02d}"
+            
+            # 3. Ažuriraj zakazivanje u bazi
+            update_query = text("""
+                UPDATE zakazivanja 
+                SET 
+                    ime = :ime,
+                    email = :email,
+                    telefon = :telefon,
+                    datum_rezervacije = :datum_rezervacije,
+                    vreme_rezervacije = :vreme_rezervacije,
+                    usluga = :usluga,
+                    opis = :opis,
+                    ime_firme = :ime_firme
+                WHERE token = :token
+                RETURNING id, ime_firme, ime, email, telefon, datum_rezervacije, 
+                          vreme_rezervacije, usluga, opis
+            """)
+            
+            update_result = db.session.execute(update_query, {
+                'ime': podaci.get('ime'),
+                'email': podaci.get('email'),
+                'telefon': podaci.get('telefon'),
+                'datum_rezervacije': datum_rezervacije,
+                'vreme_rezervacije': podaci.get('vreme') or podaci.get('vreme_rezervacije'),
+                'usluga': json.dumps(podaci.get('usluga', {})),
+                'opis': podaci.get('opis', ''),
+                'ime_firme': podaci.get('ime_firme') or ime_firme_id,
+                'token': token
+            }).fetchone()
+            
+            db.session.commit()
+            
+            # 4. Dohvati podatke o preduzeću
+            preduzece_query = text("SELECT ime FROM preduzeca WHERE id = :id")
+            preduzece_result = db.session.execute(preduzece_query, {'id': ime_firme_id}).fetchone()
+            preduzece_ime = preduzece_result[0] if preduzece_result else 'Preduzeće'
+            
+            # 5. Formatiraj datum i vreme za mejl
+            datum_i_vreme = f"{podaci.get('dan', stari_podaci.get('dan'))}.{int(podaci.get('mesec', stari_podaci.get('mesec'))) + 1}.{podaci.get('godina', stari_podaci.get('godina'))} u {podaci.get('vreme') or podaci.get('vreme_rezervacije')}"
+            
+            # 6. Utvrledi da li se lokacija promenila
+            nova_lokacija = podaci.get('lokacija') or podaci.get('ime_firme')
+            stara_lokacija = stari_podaci.get('lokacija') or stari_podaci.get('ime_firme')
+            lokacija_promenjena = nova_lokacija != stara_lokacija
+            
+            # 7. Slaj mejlove na osnovu tipa ulaska i što se promenilo
+            subject = f"Izmena termina - {preduzece_ime}"
+            
+            if not lokacija_promenjena:
+                # Ista lokacija
+                if tip_ulaska == 2:  # Korisnik menja
+                    poruka = f"""Poštovani,
                     \nVaš termin je uspešno izmenjen za {datum_i_vreme}. Dobićete obaveštenje kada neko potvrdi vaš termin.
                     \n Takođe možete izmeniti vreme i datum Vašeg termina na linku ispod. Nakon izmene očekujte ponovnu potvrdu.
-                    \n https://mojtermin.site/zakazi/{data.get("id")}/izmeni/{token}
+                    \n https://mojtermin.site/zakazi/{data.get('id')}/izmeni/{token}
                     \n\nHvala što ste izabrali našu uslugu! Ovu uslugu je omogućio servis Moj Termin.
-                """
+                    """
 
-                html_poruka = f"""
+                    html_poruka = f"""
                     <html>
                         {html_head}
                         <body>
@@ -589,71 +428,84 @@ def izmeniTermin():
                             <h2>Poštovani,</h2>
                             <p>Vaš termin je <b>uspešno izmenjen</b> za <b>{datum_i_vreme}</b>. Dobićete obaveštenje kada neko potvrdi vaš termin.</p>
                             <p>Takođe možete izmeniti vreme i datum Vašeg termina. Nakon izmene očekujte ponovnu potvrdu.</p>
-                            <a href="https://mojtermin.site/zakazi/{data.get("id")}/izmeni/{token}" class="btn">Izmenite termin</a>
+                            <a href="https://mojtermin.site/zakazi/{data.get('id')}/izmeni/{token}" class="btn">Izmenite termin</a>
                             <p style="margin-top: 20px;">Hvala što ste izabrali našu uslugu! Ovu uslugu je omogućio servis <b><a href="https://mojtermin.site">Moj Termin</a></b>.</p>
                             </div>
                         </body>
                     </html>
                     """
+                    
+                    try:
+                        send_confirmation_email(
+                            podaci.get('email'),
+                            poruka,
+                            subject,
+                            html_poruka
+                        )
+                    except Exception as email_error:
+                        print(f"❌ Greška pri slanju mejla korisniku: {str(email_error)}")
+                    
+                    if user_id is not None:
+                        try:
+                            send_email_to_workers(
+                                data.get('id'),
+                                nova_lokacija,
+                                'Izmena termina',
+                                token,
+                                nova_lokacija,
+                                preduzece_ime,
+                                datum_i_vreme,
+                                podaci.get('ime'),
+                                stari_podaci
+                            )
+                        except Exception as worker_error:
+                            print(f"❌ Greška pri slanju mejla zaposlenima: {str(worker_error)}")
                 
-                send_confirmation_email(
-                    podaci.get('email'),
-                    poruka,
-                    subject,
-                    html_poruka
-                )
-                send_email_to_workers(
-                    data.get("id"),
-                    odabrana_lokacija,
-                    'Izmena termina',
-                    token,
-                    odabrana_lokacija,
-                    preduzece,
-                    datum_i_vreme,
-                    podaci.get('ime'),
-                    stariPodaci
-                )
-            
-            else: #zaposlen menja
-                poruka = f"""Poštovani,
-                    \nVaš termin u {preduzece} je izmenio zaposlenik za {datum_i_vreme}.
+                else:  # Zaposleni menja (tip_ulaska != 2)
+                    poruka = f"""Poštovani,
+                    \nVaš termin u {preduzece_ime} je izmenio zaposlenik za {datum_i_vreme}.
                     \nUkoliko Vam novo vreme termina ne odgovara, možete da izmeniti ili otkazati na linku ispod.
-                    \nhttps://mojtermin.site/zakazi/{data.get("id")}/izmeni/{token}
+                    \nhttps://mojtermin.site/zakazi/{data.get('id')}/izmeni/{token}
                     \n Ukoliko menjate termin vreme termina, molimo Vas da ne zakazujete termin u vreme koje ste prvobitno odabrali.
                     \n\nHvala što ste izabrali našu uslugu! Ovu uslugu je omogućio servis Moj Termin.
-                """
-                html_poruka = f"""
+                    """
+                    
+                    html_poruka = f"""
                     <html>
                         {html_head}
                         <body>
                             <div class="content">
                                 <h2>Poštovani,</h2>
-                                <p>Vaš termin u {preduzece} je izmenio zaposlenik za <b>{datum_i_vreme}</b>.</p>
+                                <p>Vaš termin u {preduzece_ime} je izmenio zaposlenik za <b>{datum_i_vreme}</b>.</p>
                                 <p>Ukoliko Vam novo vreme termina ne odgovara, možete da izmenite ili otkazati na linku ispod.</p>
-                                <a href="https://mojtermin.site/zakazi/{data.get("id")}/izmeni/{token}" class="btn">Izmenite termin</a>
+                                <a href="https://mojtermin.site/zakazi/{data.get('id')}/izmeni/{token}" class="btn">Izmenite termin</a>
                                 <p style="margin-top: 20px;">Hvala što ste izabrali našu uslugu! Ovu uslugu je omogućio servis <b><a href="https://mojtermin.site">Moj Termin</a></b>.</p>
                             </div>
                         </body>
                     </html>
-                """
+                    """
 
-                send_confirmation_email(
-                    podaci.get('email'),
-                    poruka,
-                    subject,
-                    html_poruka
-                )
-       
-        else: #promena lokacije
-            if tipUlaska == 2: #korisnik menja
-                poruka = f"""Poštovani,
+                    try:
+                        send_confirmation_email(
+                            podaci.get('email'),
+                            poruka,
+                            subject,
+                            html_poruka
+                        )
+                    except Exception as email_error:
+                        print(f"❌ Greška pri slanju mejla: {str(email_error)}")
+            
+            else:
+                # Promena lokacije
+                if tip_ulaska == 2:  # Korisnik menja
+                    poruka = f"""Poštovani,
                     \nVaš termin je uspešno izmenjen za {datum_i_vreme}. Dobićete obaveštenje kada neko potvrdi vaš termin.
                     \n Takođe možete izmeniti vreme i datum Vašeg termina na linku ispod. Nakon izmene očekujte ponovnu potvrdu.
-                    \n https://mojtermin.site/zakazi/{data.get("id")}/izmeni/{token}
+                    \n https://mojtermin.site/zakazi/{data.get('id')}/izmeni/{token}
                     \n\nHvala što ste izabrali našu uslugu! Ovu uslugu je omogućio servis Moj Termin.
-                """
+                    """
 
-                html_poruka = f"""
+                    html_poruka = f"""
                     <html>
                         {html_head}
                         <body>
@@ -661,168 +513,301 @@ def izmeniTermin():
                             <h2>Poštovani,</h2>
                             <p>Vaš termin je <b>uspešno izmenjen</b> za <b>{datum_i_vreme}</b>. Dobićete obaveštenje kada neko potvrdi vaš termin.</p>
                             <p>Takođe možete izmeniti vreme i datum Vašeg termina. Nakon izmene očekujte ponovnu potvrdu.</p>
-                            <a href="https://mojtermin.site/zakazi/{data.get("id")}/izmeni/{token}" class="btn">Izmenite termin</a>
+                            <a href="https://mojtermin.site/zakazi/{data.get('id')}/izmeni/{token}" class="btn">Izmenite termin</a>
                             <p style="margin-top: 20px;">Hvala što ste izabrali našu uslugu! Ovu uslugu je omogućio servis <b><a href="https://mojtermin.site">Moj Termin</a></b>.</p>
                             </div>
                         </body>
                     </html>
                     """
+                    
+                    try:
+                        send_confirmation_email(
+                            podaci.get('email'),
+                            poruka,
+                            subject,
+                            html_poruka
+                        )
+                    except Exception as email_error:
+                        print(f"❌ Greška pri slanju mejla: {str(email_error)}")
+
+                    if user_id is not None:
+                        try:
+                            send_email_to_workers(  # Novoj lokaciji
+                                data.get('id'),
+                                nova_lokacija,
+                                'Izmena termina - nova lokacija',
+                                token,
+                                nova_lokacija,
+                                preduzece_ime,
+                                datum_i_vreme,
+                                podaci.get('ime'),
+                                stari_podaci
+                            )
+                        except Exception as worker_error:
+                            print(f"❌ Greška pri slanju mejla zaposlenima (nova): {str(worker_error)}")
+                        
+                        try:
+                            send_email_to_workers(  # Staroj lokaciji
+                                data.get('id'),
+                                stara_lokacija,
+                                'Izmena termina na novu lokaciju',
+                                token,
+                                stara_lokacija,
+                                preduzece_ime,
+                                datum_i_vreme,
+                                podaci.get('ime'),
+                                stari_podaci
+                            )
+                        except Exception as worker_error:
+                            print(f"❌ Greška pri slanju mejla zaposlenima (stara): {str(worker_error)}")
                 
-                send_confirmation_email(
-                    podaci.get('email'),
-                    poruka,
-                    subject,
-                    html_poruka
-                )
-
-                send_email_to_workers( #novoj lokaciji
-                    data.get("id"),
-                    odabrana_lokacija,
-                    'Izmena termina - nova lokacija',
-                    token,
-                    odabrana_lokacija,
-                    preduzece,
-                    datum_i_vreme,
-                    podaci.get('ime'),
-                    stariPodaci
-                )
-                send_email_to_workers( #staroj lokaciji
-                    data.get("id"),
-                    odabrana_lokacija,
-                    'Izmena termina na novu lokaciju',
-                    token,
-                    stariPodaci.get('lokacija'),
-                    preduzece,
-                    datum_i_vreme,
-                    podaci.get('ime'),
-                    stariPodaci
-                )
-            
-            else: #zaposlen menja
-                send_email_to_workers(
-                    data.get("id"),
-                    odabrana_lokacija,
-                    'Izmena termina - nova lokacija',
-                    token,
-                    odabrana_lokacija,
-                    preduzece,
-                    datum_i_vreme,
-                    podaci.get('ime'),
-                    stariPodaci
-                )
-                send_email_to_workers(
-                    data.get("id"),
-                    odabrana_lokacija,
-                    'Izmena termina na novu lokaciju',
-                    token,
-                    stariPodaci.get('lokacija'),
-                    preduzece,
-                    datum_i_vreme,
-                    podaci.get('ime'),
-                    stariPodaci
-                )
-
-
+                else:  # Zaposleni menja
+                    if user_id is not None:
+                        try:
+                            send_email_to_workers(
+                                data.get('id'),
+                                nova_lokacija,
+                                'Izmena termina - nova lokacija',
+                                token,
+                                nova_lokacija,
+                                preduzece_ime,
+                                datum_i_vreme,
+                                podaci.get('ime'),
+                                stari_podaci
+                            )
+                        except Exception as worker_error:
+                            print(f"❌ Greška pri slanju mejla zaposlenima (nova): {str(worker_error)}")
+                        
+                        try:
+                            send_email_to_workers(
+                                data.get('id'),
+                                stara_lokacija,
+                                'Izmena termina na novu lokaciju',
+                                token,
+                                stara_lokacija,
+                                preduzece_ime,
+                                datum_i_vreme,
+                                podaci.get('ime'),
+                                stari_podaci
+                            )
+                        except Exception as worker_error:
+                            print(f"❌ Greška pri slanju mejla zaposlenima (stara): {str(worker_error)}")
+        
         return jsonify({
-            'status': response.status_code,
-            'xano_response': response.json(),
-            'app_response': 'Zakazivanje uspešno'
-        })
-    
-    except requests.exceptions.RequestException as e:
-        return jsonify({'error': str(e)}), 500
+            'status': 200,
+            'app_response': 'Zakazivanje uspešno izmenjeno',
+            'zakazi_id': zakaz_id
+        }), 200
 
-
-
-
-@app.route('/api/zakazi/otkazi', methods=['PATCH'])
-def otkaziTermin():
-    data = request.json
-    podaci = data.get('podaci')
-    odabrana_lokacija = podaci.get('lokacija')
-    token = data.get('token')
-    tipUlaska = data.get('tipUlaska')
-    if not token:
-        return jsonify({'error': 'Nedostaje token'}), 400
-    if not podaci:
-        return jsonify({'error': 'Nedostaju podaci'}), 400
-    if not odabrana_lokacija:
-        return jsonify({'error': 'Nedostaje ime lokacije'}), 400
-    if not tipUlaska:
-        return jsonify({'error': 'Nedostaje podatak o tipu korisnika'}), 400
-    
-    xano_url = f'https://x8ki-letl-twmt.n7.xano.io/api:YgSxZfYk/zakazivanja/{token}/otkazi'
-    try:
-        response = requests.patch(xano_url, json=data, headers={'Content-Type': 'application/json'})
-        if response.status_code !=200:
-            return jsonify({'error': 'Xano error', 'Xano message': response}), response.status_code
-
-        res_json = response.json()
-        user = res_json.get('user', {})
-        preduzece = user.get('ime_preduzeca')
-        lokacije = user.get('lokacije', [])
-        datum_i_vreme = f"{podaci.get('dan')}.{int(podaci.get('mesec')) + 1}.{podaci.get('godina')} u {podaci.get('vreme')}"
-
-        subject = "Otkazivanje termina"
-
-        if tipUlaska == 2: #ulazi korisnik i mejl se šalje zaposlenima
-            try:
-                send_email_to_workers(
-                    data.get("id"),
-                    odabrana_lokacija,
-                    subject,
-                    token,
-                    odabrana_lokacija,
-                    preduzece,
-                    datum_i_vreme,
-                    podaci.get('ime')
-                )
-            except Exception as worker_email_error:
-                print(f"❌ Greška pri slanju emaila zaposlenima: {str(worker_email_error)}")
-        else: #zaposlen otkazuje termin, mejl ide korisniku
-            try:
-                send_confirmation_email(
-                    podaci.get('email'),
-                    f"""
-                        Poštovani,
-                        \nVaš termin u {preduzece} za {datum_i_vreme} je otkazan od strane zaposlenog radnika.
-                        \nNaravno možete ponovo zakazati termin na linku ispod.
-                        \nhttps://mojtermin.site/zakazi/{data.get("id")}
-                        \n\nHvala što ste izabrali našu uslugu! Ovu uslugu je omogućio servis Moj Termin.
-                    """,
-                    subject=f"{subject} - {preduzece}",
-                    html_poruka=f"""
-                        <html>
-                            {html_head}
-                            <body>
-                                <div class="content">
-                                    <h2>Poštovani,</h2>
-                                    <p>Vaš termin u {preduzece} za <b>{datum_i_vreme}</b> je otkazan od strane zaposlenog radnika.</p>
-                                    <a href="https://mojtermin.site/zakazi/{data.get("id")}" class="btn">Ponovo zakazivanje</a>
-                                    <p style="margin-top: 20px;">Hvala što ste izabrali našu uslugu! Ovu uslugu je omogućio servis <b><a href="https://mojtermin.site">Moj Termin</a></b>.</p>
-                                </div>
-                            </body>
-                        </html>
-                    """
-                )
-            except Exception as email_error:
-                print(f"❌ Greška pri slanju emaila: {str(email_error)}")
-
-
-        return jsonify({
-            'status': response.status_code,
-            'xano_response': response.json(),
-            'app_response': 'Otkazivanje uspešno'
-        })
-    except requests.exceptions.RequestException as e:
-        return jsonify({'error': str(e)}), 500
     except Exception as e:
-        print(f"❌ Neočekivana greška u /api/zakazi/otkazi: {str(e)}")
-        return jsonify({'error': f'Server greška: {str(e)}'}), 500
+        print(f"❌ Greška u /api/zakazi/izmena: {str(e)}")
+        db.session.rollback()
+        return jsonify({
+            'status': 500,
+            'error': str(e)
+        }), 500
 
 
+@app.route('/api/potvrdi_termin', methods=['POST'])
+def potvrdiTermin():
+    """
+    Potvrđuje zakazivanje i menja "potvrdio" polje sa ID-om korisnika koji potvrđuje.
+    Šalje mejl korisniku o potvrdi.
+    """
+    try:
+        data = request.json
+        termin = data.get('termin', {})
+        auth_token = data.get('authToken')
+        
+        termin_token = termin.get('token')
+        potvrdio_id = termin.get('potvrdio')
+        
+        # Validacija
+        if not termin_token:
+            return jsonify({'error': 'Nedostaje token termina'}), 400
+        if not potvrdio_id:
+            return jsonify({'error': 'Nedostaje ID korisnika koji potvrđuje'}), 400
+        if not auth_token:
+            return jsonify({'error': 'Nedostaje authToken'}), 400
+        
+        with app.app_context():
+            # 1. Pronađi zakazivanje po tokenu i preuzmi podatke
+            find_query = text("""
+                SELECT id, email, ime, datum_rezervacije, vreme_rezervacije, ime_firme
+                FROM zakazivanja 
+                WHERE token = :token
+            """)
+            zakazivanje = db.session.execute(find_query, {'token': termin_token}).fetchone()
+            
+            if not zakazivanje:
+                return jsonify({'error': 'Zakazivanje nije pronađeno'}), 404
+            
+            zakaz_id, email, ime, datum, vreme, ime_firme_id = zakazivanje
+            
+            # 2. Ažuriraj "potvrdio" polje
+            update_query = text("""
+                UPDATE zakazivanja 
+                SET potvrdio = :potvrdio
+                WHERE token = :token
+            """)
+            db.session.execute(update_query, {'potvrdio': potvrdio_id, 'token': termin_token})
+            db.session.commit()
+            
+            # 3. Dohvati podatke o korisniku koji potvrđuje
+            user_query = text("SELECT username FROM users WHERE id = :id")
+            user_result = db.session.execute(user_query, {'id': potvrdio_id}).fetchone()
+            username = user_result[0] if user_result else 'Zaposlenik'
+            
+            # 4. Dohvati podatke o firmi
+            firma_query = text("SELECT ime FROM preduzeca WHERE id = :id")
+            firma_result = db.session.execute(firma_query, {'id': ime_firme_id}).fetchone()
+            firma_ime = firma_result[0] if firma_result else 'Firmi'
+            
+            # 5. Formatiraj datum
+            date_parts = str(datum).split('-')
+            if len(date_parts) == 3:
+                godina, mesec, dan = date_parts[0], date_parts[1], date_parts[2]
+                datum_prikaz = f"{dan}.{mesec}.{godina} u {vreme}"
+            else:
+                datum_prikaz = f"{datum} u {vreme}"
+            
+            # 6. Pošalji mejl o potvrdi
+            poruka = f"""Poštovani,
+            \nVaš termin u {firma_ime} je potvrdio {username}.
+            \nTermin: {datum_prikaz}
+            \n\nHvala što ste izabrali našu uslugu! Ovu uslugu je omogućio servis Moj Termin.
+            """
+            
+            html_poruka = f"""
+            <html>
+                {html_head}
+                <body>
+                    <div class="content">
+                        <h2>Poštovani,</h2>
+                        <p>Vaš termin u <b>{firma_ime}</b> je <b>potvrdio {username}</b>.</p>
+                        <p><b>Termin:</b> {datum_prikaz}</p>
+                        <p style="margin-top: 20px;">Hvala što ste izabrali našu uslugu! Ovu uslugu je omogućio servis <b><a href="https://mojtermin.site">Moj Termin</a></b>.</p>
+                    </div>
+                </body>
+            </html>
+            """
+            
+            subject = f"Potvrda termina - {firma_ime}"
+            
+            try:
+                send_confirmation_email(email, poruka, subject, html_poruka)
+            except Exception as email_error:
+                print(f"❌ Greška pri slanju mejla o potvrdi: {str(email_error)}")
+        
+        return jsonify({
+            'status': 200,
+            'message': 'Termin uspešno potvrđen',
+            'zakazi_id': zakaz_id
+        }), 200
 
-#AI
+    except Exception as e:
+        print(f"❌ Greška u /api/potvrdi_termin: {str(e)}")
+        db.session.rollback()
+        return jsonify({
+            'status': 500,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/api/otkazi', methods=['PATCH'])
+def otkaziTermin():
+    """
+    Otkazuje zakazivanje i menja "otkazano" polje na true.
+    Šalje mejl korisniku o otkazivanju.
+    """
+    try:
+        data = request.json
+        token = data.get('token')
+        
+        # Validacija
+        if not token:
+            return jsonify({'error': 'Nedostaje token termina'}), 400
+        
+        with app.app_context():
+            # 1. Pronađi zakazivanje po tokenu i preuzmi podatke
+            find_query = text("""
+                SELECT id, email, ime, datum_rezervacije, vreme_rezervacije, ime_firme
+                FROM zakazivanja 
+                WHERE token = :token
+            """)
+            zakazivanje = db.session.execute(find_query, {'token': token}).fetchone()
+            
+            if not zakazivanje:
+                return jsonify({'error': 'Zakazivanje nije pronađeno'}), 404
+            
+            zakaz_id, email, ime, datum, vreme, ime_firme_id = zakazivanje
+            
+            # 2. Ažuriraj "otkazano" polje na true
+            update_query = text("""
+                UPDATE zakazivanja 
+                SET otkazano = true
+                WHERE token = :token
+            """)
+            db.session.execute(update_query, {'token': token})
+            db.session.commit()
+            
+            # 3. Dohvati podatke o firmi
+            firma_query = text("SELECT ime FROM preduzeca WHERE id = :id")
+            firma_result = db.session.execute(firma_query, {'id': ime_firme_id}).fetchone()
+            firma_ime = firma_result[0] if firma_result else 'Firmi'
+            
+            # 4. Formatiraj datum
+            date_parts = str(datum).split('-')
+            if len(date_parts) == 3:
+                godina, mesec, dan = date_parts[0], date_parts[1], date_parts[2]
+                datum_prikaz = f"{dan}.{mesec}.{godina} u {vreme}"
+            else:
+                datum_prikaz = f"{datum} u {vreme}"
+            
+            # 5. Pošalji mejl o otkazivanju
+            poruka = f"""Poštovani,
+            \nVaš termin u {firma_ime} za {datum_prikaz} je otkazan.
+            \nNaravno možete ponovo zakazati termin.
+            \n\nHvala što ste izabrali našu uslugu! Ovu uslugu je omogućio servis Moj Termin.
+            """
+            
+            html_poruka = f"""
+            <html>
+                {html_head}
+                <body>
+                    <div class="content">
+                        <h2>Poštovani,</h2>
+                        <p>Vaš termin u <b>{firma_ime}</b> za <b>{datum_prikaz}</b> je <b>otkazan</b>.</p>
+                        <p>Naravno možete ponovo zakazati termin.</p>
+                        <p style="margin-top: 20px;">Hvala što ste izabrali našu uslugu! Ovu uslugu je omogućio servis <b><a href="https://mojtermin.site">Moj Termin</a></b>.</p>
+                    </div>
+                </body>
+            </html>
+            """
+            
+            subject = f"Otkazivanje termina - {firma_ime}"
+            
+            try:
+                send_confirmation_email(email, poruka, subject, html_poruka)
+            except Exception as email_error:
+                print(f"❌ Greška pri slanju mejla o otkazivanju: {str(email_error)}")
+        
+        return jsonify({
+            'status': 200,
+            'message': 'Termin uspešno otkazan',
+            'zakazi_id': zakaz_id
+        }), 200
+
+    except Exception as e:
+        print(f"❌ Greška u /api/otkazi: {str(e)}")
+        db.session.rollback()
+        return jsonify({
+            'status': 500,
+            'error': str(e)
+        }), 500
+
+
+# AI RUTE >>>>>>>>>>>>>
 @app.route('/api/askAI', methods=['POST'])
 def askAI_route():
     """
@@ -844,7 +829,7 @@ def askAI_route():
         return jsonify({'error': 'Nedostaje userId'}), 400
 
     # ===== PROVERA AI LIMITACIJA =====
-    limit_result = check_and_increment_ai_usage(user_id, auth_token)
+    limit_result = check_and_increment_ai_usage(user_id, auth_token, db)
     
     if not limit_result['allowed']:
         return jsonify({
@@ -856,38 +841,14 @@ def askAI_route():
     print(f"✅ Odabrani model: {selected_model}")
     # ===== KRAJ PROVERE LIMITACIJA =====
 
-    # Dohvatanje podataka firme sa Xano
+    # Dohvatanje podataka firme iz baze
     try:
-        xano_data_url = f'https://x8ki-letl-twmt.n7.xano.io/api:YgSxZfYk/get-for-ai/{user_id}/'
+        data_firme = get_ai_data_for_user(user_id, db)
         
-        firm_response = requests.get(
-            xano_data_url,
-            headers={
-                'Content-Type': 'application/json',
-                'Authorization': f'Bearer {auth_token}'
-            }
-        )
+        if not data_firme:
+            return jsonify({'error': 'Korisnik nije pronađen'}), 404
 
-        if firm_response.status_code != 200:
-            return jsonify({'error': 'Greška pri dohvatanju podataka firme'}), firm_response.status_code
-
-        data_firme = firm_response.json()
-        
-        # DEBUG: Loguj šta se dobija od Xano-a
-        print(f"\n📊 DEBUG - Data dobijeni od Xano-a (get-for-ai):")
-        print(f"Keys: {list(data_firme.keys())}")
-        print(f"Veličina data_firme: {len(str(data_firme))} karaktera")
-        
-        # Prikaži strukturu
-        for key in list(data_firme.keys())[:5]:
-            value = data_firme[key]
-            if isinstance(value, (list, dict)):
-                print(f"  - {key}: {type(value).__name__} (len: {len(value)})")
-            else:
-                print(f"  - {key}: {type(value).__name__}")
-        print()
-
-    except requests.exceptions.RequestException as e:
+    except Exception as e:
         return jsonify({'error': f'Greška pri dohvatanju podataka: {str(e)}'}), 500
 
     # Pozivanje askAI funkcije
@@ -1117,60 +1078,11 @@ def rename_chat_route(chat_id):
         return jsonify({'error': f'Server greška: {str(e)}'}), 500
 
 
-def proveri_istek_pretplate():
-    print(f"[{time.strftime('%X')}] Izvršavam upit... PID={os.getpid()}")
-
-    # 1. Dohvatanje podataka
-    response = requests.get("https://x8ki-letl-twmt.n7.xano.io/api:YgSxZfYk/alati/proveri-istek-pretplata")
-
-    if response.status_code != 200:
-        print("Greška pri dohvatanju podataka:", response.status_code)
-        return
-
-    podaci = response.json()
-    danas = datetime.now().date()
-    lista_izmenjenih = []
-
-    # 2. Obrada svakog korisnika
-    for korisnik in podaci:
-        istek = korisnik.get("istek_pretplate")
-        paket = korisnik.get("paket")
-        korisnik_id = korisnik.get("id")
-
-        if istek:
-            try:
-                datum_isteka = datetime.strptime(istek, "%Y-%m-%d").date()
-                if datum_isteka < danas and paket.lower() != "personalni":
-                    print(f"Korisnik {korisnik_id} -> pretplata istekla ({istek}), menjam paket...")
-                    # 3. Dodavanje u listu
-                    lista_izmenjenih.append(korisnik_id)
-                    
-            except Exception as e:
-                print(f"✘ Greška u parsiranju datuma za korisnika {korisnik_id}: {e}")
-        
-    
-    if lista_izmenjenih:
-        izmena_res = requests.patch(
-            "https://x8ki-letl-twmt.n7.xano.io/api:YgSxZfYk/alati/izmeni-istek-pretplata",
-            json={"lista": lista_izmenjenih}
-        )
-        if izmena_res.status_code == 200:
-            print(f"✔ Paket je uspešno izmenjen za korisnike: {lista_izmenjenih}")
-        else:
-            print(f"✘ Greška pri izmeni paketa, status: {izmena_res.status_code}")
-    else:
-        print("Nema korisnika kojima je istekao paket za izmenu.")
-
-# Inicijalizacija i startovanje scheduler-a
-scheduler = BackgroundScheduler()
 
 
 
 
 
-
+# Pokretanje aplikacije
 if __name__ == '__main__':
-    if not app.debug or os.environ.get("WERKZEUG_RUN_MAIN") == "true":
-        scheduler.add_job(proveri_istek_pretplate, 'interval', hours=24)
-        scheduler.start()
     app.run(debug=True)
