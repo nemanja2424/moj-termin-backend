@@ -337,7 +337,7 @@ def zakazi_termin():
                 print(f"❌ Greška pri slanju potvrde emaila: {str(email_error)}")
             
             # Slanje mejla zaposlenima ako je userId postavljen (nije null)
-            if user_id is not None:
+            if user_id is None:
                 print(f"Slanje mejla zaposlenima...")
                 try:
                     send_email_to_workers(
