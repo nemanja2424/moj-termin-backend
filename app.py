@@ -1,5 +1,6 @@
 import os
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_from_directory
+from werkzeug.utils import secure_filename
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from flask_jwt_extended import JWTManager
@@ -92,6 +93,59 @@ app.register_blueprint(tests_bp, url_prefix='/api/tests')
 @app.route('/api/hello', methods=['GET'])
 def hello():
     return jsonify({"message": "Zdravo iz Flask API-ja!"})
+
+UPLOAD_FOLDER = '/var/www/moj-termin-frontend-test/public/logos'
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+@app.route('/api/novi_logo', methods=['POST'])
+def upload_logo():
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file part'}), 400
+
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'error': 'No selected file'}), 400
+
+    filename = secure_filename(file.filename)
+    file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+
+    userId = request.form.get('id')
+    authToken = request.form.get('authToken')
+    logoName = f'{file.filename}'
+
+    if not userId or not authToken:
+        return jsonify({'error': 'Nedostaju podaci'}), 400
+
+    xano_url = f'https://x8ki-letl-twmt.n7.xano.io/api:YgSxZfYk/podesavanja/logo/{userId}'
+    try:
+        response = requests.patch(
+            xano_url,
+            headers={
+                'Authorization': f'Bearer {authToken}',
+                'Content-Type': 'application/json'
+            },
+            json={
+                "putanja": logoName
+            }
+        )
+        if response.status_code != 200:
+            return jsonify({'error': 'Xano error', 'details': response.text}), response.status_code
+
+        return jsonify({'message': 'Logo uploaded successfully', 'filename': filename}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route("/api/logo/<filename>")
+def serve_logo(filename):
+    if filename == "/images/logo.webp":
+        return send_from_directory("/var/www/moj-termin-frontend-test/public/Images", "logo.webp")
+    
+    safe_name = secure_filename(filename)
+    putanja = f'/var/www/moj-termin-frontend-test/public/logos'
+    print(putanja)
+    return send_from_directory(putanja, safe_name)
+
+
 
 @app.route('/api/zakazi', methods=['POST'])
 def zakazi_termin():
