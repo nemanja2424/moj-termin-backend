@@ -17,6 +17,51 @@ admin_bp = Blueprint("admin", __name__)
 def hello():
     return jsonify({"message": "Zdravo ADMINE!"})
 
+
+@admin_bp.route('/info/<int:user_id>', methods=['GET'])
+@jwt_required()
+def get_user_info(user_id):
+    """
+    Dohvata informacije o korisniku sa specificiranim ID-om.
+    
+    Vraća:
+    - 200: Korisnikovi podaci (id, email, paket, ai_info, paket_limits)
+    - 404: Korisnik nije pronađen
+    - 500: Serverska greška
+    """
+    try:
+        from app import db
+        
+        query = text("""
+            SELECT id, email, paket, ai_info, paket_limits
+            FROM users
+            WHERE id = :user_id
+        """)
+        
+        result = db.session.execute(query, {'user_id': user_id}).fetchone()
+        
+        if not result:
+            return jsonify({'error': 'Korisnik nije pronađen'}), 404
+        
+        return jsonify({
+            'status': 200,
+            'user': {
+                'id': result[0],
+                'email': result[1],
+                'paket': result[2],
+                'ai_info': json.loads(result[3]) if result[3] else {},
+                'paket_limits': json.loads(result[4]) if result[4] else {}
+            }
+        }), 200
+        
+    except Exception as e:
+        print(f"❌ Greška u /api/admin/info/{user_id}: {str(e)}")
+        return jsonify({
+            'status': 500,
+            'error': str(e)
+        }), 500
+
+
 @admin_bp.route('/paket_limits', methods=['PATCH'])
 @jwt_required()
 def update_paket_limits():
