@@ -83,7 +83,7 @@ def send_confirmation_email(to_email, poruka, subject, html_poruka=None ):
     try:
         msg = MIMEMultipart("alternative")
         msg["Subject"] = subject
-        msg["From"] = "notifications@test.mojtermin.site"
+        msg["From"] = os.getenv('SMTP_USER')
         msg["To"] = to_email
 
         # Dodaj tekstualni deo (plain text)
