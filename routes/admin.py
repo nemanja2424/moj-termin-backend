@@ -49,8 +49,8 @@ def get_user_info(user_id):
                 'id': result[0],
                 'email': result[1],
                 'paket': result[2],
-                'ai_info': json.loads(result[3]) if result[3] else {},
-                'paket_limits': json.loads(result[4]) if result[4] else {}
+                'ai_info': result[3] if result[3] else {},
+                'paket_limits': result[4] if result[4] else {}
             }
         }), 200
         
