@@ -266,7 +266,7 @@ def zakazi_termin():
             
             params = {
                 'ime_firme': int(preduzece_id),
-                'ime': podaci.get('ime'),
+                'ime': podaci.get('ime') or podaci.get('email'),
                 'email': podaci.get('email'),
                 'telefon': podaci.get('telefon'),
                 'datum_rezervacije': datum_rezervacije,
@@ -306,7 +306,7 @@ def zakazi_termin():
             poruka = f"""Poštovani,
             Vaš termin u {preduzece_ime} je uspešno zakazan za {datum_i_vreme}, na adresi {adresa}. Dobićete obaveštenje kada neko potvrdi vaš termin.
             Takođe možete izmeniti vreme i datum Vašeg termina na linku ispod. Nakon izmene očekujte ponovnu potvrdu.
-            https://mojtermin.site/zakazi/{vlasnik_id}/izmeni/{token}
+            https://test.mojtermin.site/zakazi/{vlasnik_id}/izmeni/{token}
             
             Hvala što ste izabrali našu uslugu! Ovu uslugu je omogućio servis Moj Termin."""
 
@@ -318,8 +318,8 @@ def zakazi_termin():
                     <h2>Poštovani,</h2>
                     <p>Vaš termin u {preduzece_ime} je <b>uspešno zakazan</b> za <b>{datum_i_vreme}</b> na adresi <b>{adresa}</b>. Dobićete obaveštenje kada neko potvrdi vaš termin.</p>
                     <p>Takođe možete izmeniti vreme i datum Vašeg termina. Nakon izmene očekujte ponovnu potvrdu.</p>
-                    <a href="https://mojtermin.site/zakazi/{vlasnik_id}/izmeni/{token}" class="btn">Izmenite termin</a>
-                    <p style="margin-top: 20px;">Hvala što ste izabrali našu uslugu! Ovu uslugu je omogućio servis <b><a href="https://mojtermin.site">Moj Termin</a></b>.</p>
+                    <a href="https://test.mojtermin.site/zakazi/{vlasnik_id}/izmeni/{token}" class="btn">Izmenite termin</a>
+                    <p style="margin-top: 20px;">Hvala što ste izabrali našu uslugu! Ovu uslugu je omogućio servis <b><a href="https://test.mojtermin.site">Moj Termin</a></b>.</p>
                     </div>
                 </body>
             </html>
@@ -347,7 +347,7 @@ def zakazi_termin():
                         int(preduzece_id),
                         preduzece_ime,
                         datum_i_vreme,
-                        podaci.get('ime')
+                        podaci.get('ime') or podaci.get('email')
                     )
                 except Exception as worker_email_error:
                     print(f"❌ Greška pri slanju emaila zaposlenima: {str(worker_email_error)}")
@@ -432,7 +432,7 @@ def izmeniTermin():
             """)
             
             update_result = db.session.execute(update_query, {
-                'ime': podaci.get('ime'),
+                'ime': podaci.get('ime') or podaci.get('email'),
                 'email': podaci.get('email'),
                 'telefon': podaci.get('telefon'),
                 'datum_rezervacije': datum_rezervacije,
@@ -467,7 +467,7 @@ def izmeniTermin():
                     poruka = f"""Poštovani,
                     \nVaš termin je uspešno izmenjen za {datum_i_vreme}. Dobićete obaveštenje kada neko potvrdi vaš termin.
                     \n Takođe možete izmeniti vreme i datum Vašeg termina na linku ispod. Nakon izmene očekujte ponovnu potvrdu.
-                    \n https://mojtermin.site/zakazi/{data.get('id')}/izmeni/{token}
+                    \n https://test.mojtermin.site/zakazi/{data.get('id')}/izmeni/{token}
                     \n\nHvala što ste izabrali našu uslugu! Ovu uslugu je omogućio servis Moj Termin.
                     """
 
@@ -479,8 +479,8 @@ def izmeniTermin():
                             <h2>Poštovani,</h2>
                             <p>Vaš termin je <b>uspešno izmenjen</b> za <b>{datum_i_vreme}</b>. Dobićete obaveštenje kada neko potvrdi vaš termin.</p>
                             <p>Takođe možete izmeniti vreme i datum Vašeg termina. Nakon izmene očekujte ponovnu potvrdu.</p>
-                            <a href="https://mojtermin.site/zakazi/{data.get('id')}/izmeni/{token}" class="btn">Izmenite termin</a>
-                            <p style="margin-top: 20px;">Hvala što ste izabrali našu uslugu! Ovu uslugu je omogućio servis <b><a href="https://mojtermin.site">Moj Termin</a></b>.</p>
+                            <a href="https://test.mojtermin.site/zakazi/{data.get('id')}/izmeni/{token}" class="btn">Izmenite termin</a>
+                            <p style="margin-top: 20px;">Hvala što ste izabrali našu uslugu! Ovu uslugu je omogućio servis <b><a href="https://test.mojtermin.site">Moj Termin</a></b>.</p>
                             </div>
                         </body>
                     </html>
@@ -506,7 +506,7 @@ def izmeniTermin():
                                 nova_lokacija,
                                 preduzece_ime,
                                 datum_i_vreme,
-                                podaci.get('ime'),
+                                podaci.get('ime') or podaci.get('email'),
                                 stari_podaci
                             )
                         except Exception as worker_error:
@@ -516,7 +516,7 @@ def izmeniTermin():
                     poruka = f"""Poštovani,
                     \nVaš termin u {preduzece_ime} je izmenio zaposlenik za {datum_i_vreme}.
                     \nUkoliko Vam novo vreme termina ne odgovara, možete da izmeniti ili otkazati na linku ispod.
-                    \nhttps://mojtermin.site/zakazi/{data.get('id')}/izmeni/{token}
+                    \nhttps://test.mojtermin.site/zakazi/{data.get('id')}/izmeni/{token}
                     \n Ukoliko menjate termin vreme termina, molimo Vas da ne zakazujete termin u vreme koje ste prvobitno odabrali.
                     \n\nHvala što ste izabrali našu uslugu! Ovu uslugu je omogućio servis Moj Termin.
                     """
@@ -529,8 +529,8 @@ def izmeniTermin():
                                 <h2>Poštovani,</h2>
                                 <p>Vaš termin u {preduzece_ime} je izmenio zaposlenik za <b>{datum_i_vreme}</b>.</p>
                                 <p>Ukoliko Vam novo vreme termina ne odgovara, možete da izmenite ili otkazati na linku ispod.</p>
-                                <a href="https://mojtermin.site/zakazi/{data.get('id')}/izmeni/{token}" class="btn">Izmenite termin</a>
-                                <p style="margin-top: 20px;">Hvala što ste izabrali našu uslugu! Ovu uslugu je omogućio servis <b><a href="https://mojtermin.site">Moj Termin</a></b>.</p>
+                                <a href="https://test.mojtermin.site/zakazi/{data.get('id')}/izmeni/{token}" class="btn">Izmenite termin</a>
+                                <p style="margin-top: 20px;">Hvala što ste izabrali našu uslugu! Ovu uslugu je omogućio servis <b><a href="https://test.mojtermin.site">Moj Termin</a></b>.</p>
                             </div>
                         </body>
                     </html>
@@ -552,7 +552,7 @@ def izmeniTermin():
                     poruka = f"""Poštovani,
                     \nVaš termin je uspešno izmenjen za {datum_i_vreme}. Dobićete obaveštenje kada neko potvrdi vaš termin.
                     \n Takođe možete izmeniti vreme i datum Vašeg termina na linku ispod. Nakon izmene očekujte ponovnu potvrdu.
-                    \n https://mojtermin.site/zakazi/{data.get('id')}/izmeni/{token}
+                    \n https://test.mojtermin.site/zakazi/{data.get('id')}/izmeni/{token}
                     \n\nHvala što ste izabrali našu uslugu! Ovu uslugu je omogućio servis Moj Termin.
                     """
 
@@ -564,8 +564,8 @@ def izmeniTermin():
                             <h2>Poštovani,</h2>
                             <p>Vaš termin je <b>uspešno izmenjen</b> za <b>{datum_i_vreme}</b>. Dobićete obaveštenje kada neko potvrdi vaš termin.</p>
                             <p>Takođe možete izmeniti vreme i datum Vašeg termina. Nakon izmene očekujte ponovnu potvrdu.</p>
-                            <a href="https://mojtermin.site/zakazi/{data.get('id')}/izmeni/{token}" class="btn">Izmenite termin</a>
-                            <p style="margin-top: 20px;">Hvala što ste izabrali našu uslugu! Ovu uslugu je omogućio servis <b><a href="https://mojtermin.site">Moj Termin</a></b>.</p>
+                            <a href="https://test.mojtermin.site/zakazi/{data.get('id')}/izmeni/{token}" class="btn">Izmenite termin</a>
+                            <p style="margin-top: 20px;">Hvala što ste izabrali našu uslugu! Ovu uslugu je omogućio servis <b><a href="https://test.mojtermin.site">Moj Termin</a></b>.</p>
                             </div>
                         </body>
                     </html>
@@ -591,7 +591,7 @@ def izmeniTermin():
                                 nova_lokacija,
                                 preduzece_ime,
                                 datum_i_vreme,
-                                podaci.get('ime'),
+                                podaci.get('ime') or podaci.get('email'),
                                 stari_podaci
                             )
                         except Exception as worker_error:
@@ -606,7 +606,7 @@ def izmeniTermin():
                                 stara_lokacija,
                                 preduzece_ime,
                                 datum_i_vreme,
-                                podaci.get('ime'),
+                                podaci.get('ime') or podaci.get('email'),
                                 stari_podaci
                             )
                         except Exception as worker_error:
@@ -623,7 +623,7 @@ def izmeniTermin():
                                 nova_lokacija,
                                 preduzece_ime,
                                 datum_i_vreme,
-                                podaci.get('ime'),
+                                podaci.get('ime') or podaci.get('email'),
                                 stari_podaci
                             )
                         except Exception as worker_error:
@@ -638,7 +638,7 @@ def izmeniTermin():
                                 stara_lokacija,
                                 preduzece_ime,
                                 datum_i_vreme,
-                                podaci.get('ime'),
+                                podaci.get('ime') or podaci.get('email'),
                                 stari_podaci
                             )
                         except Exception as worker_error:
@@ -737,7 +737,7 @@ def potvrdiTermin():
                         <h2>Poštovani,</h2>
                         <p>Vaš termin u <b>{firma_ime}</b> je <b>potvrdio {username}</b>.</p>
                         <p><b>Termin:</b> {datum_prikaz}</p>
-                        <p style="margin-top: 20px;">Hvala što ste izabrali našu uslugu! Ovu uslugu je omogućio servis <b><a href="https://mojtermin.site">Moj Termin</a></b>.</p>
+                        <p style="margin-top: 20px;">Hvala što ste izabrali našu uslugu! Ovu uslugu je omogućio servis <b><a href="https://test.mojtermin.site">Moj Termin</a></b>.</p>
                     </div>
                 </body>
             </html>
@@ -830,7 +830,7 @@ def otkaziTermin():
                         <h2>Poštovani,</h2>
                         <p>Vaš termin u <b>{firma_ime}</b> za <b>{datum_prikaz}</b> je <b>otkazan</b>.</p>
                         <p>Naravno možete ponovo zakazati termin.</p>
-                        <p style="margin-top: 20px;">Hvala što ste izabrali našu uslugu! Ovu uslugu je omogućio servis <b><a href="https://mojtermin.site">Moj Termin</a></b>.</p>
+                        <p style="margin-top: 20px;">Hvala što ste izabrali našu uslugu! Ovu uslugu je omogućio servis <b><a href="https://test.mojtermin.site">Moj Termin</a></b>.</p>
                     </div>
                 </body>
             </html>
