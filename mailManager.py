@@ -172,7 +172,7 @@ def send_email_to_workers(vlasnikId, naslov, token, lokacija, preduzece, datum_i
                     poruka=f"""
                         Novi termin zakazan u {preduzece} za {datum_i_vreme}. Klijent: {zakazivac}.
                         \nNa linku ispod možete izmeniti vreme i datum termina, potvrditi ga ili otkazati.
-                        \nhttps://test.mojtermin.site/zakazi/{vlasnikId}/izmena/{token}
+                        \nhttps://mojtermin.site/zakazi/{vlasnikId}/izmena/{token}
                     """,
                     subject=f"{naslov} - {preduzece}",
                     html_poruka=f"""
@@ -181,8 +181,8 @@ def send_email_to_workers(vlasnikId, naslov, token, lokacija, preduzece, datum_i
                             <body>
                                 <div class="content">
                                     <p>Novi termin zakazan u {preduzece} za {datum_i_vreme}. Klijent: {zakazivac}</p>
-                                    <a href="https://test.mojtermin.site/zakazi/{vlasnikId}/izmeni/{token}/potvrda/{korisnik_id}" class="btn">Potvrdi termin</a>
-                                    <a href="https://test.mojtermin.site/zakazi/{vlasnikId}/izmeni/{token}" class="btn">Izmenite termin</a>
+                                    <a href="https://mojtermin.site/zakazi/{vlasnikId}/izmeni/{token}/potvrda/{korisnik_id}" class="btn">Potvrdi termin</a>
+                                    <a href="https://mojtermin.site/zakazi/{vlasnikId}/izmeni/{token}" class="btn">Izmenite termin</a>
                                 </div>
                             </body>
                         </html>
@@ -195,7 +195,7 @@ def send_email_to_workers(vlasnikId, naslov, token, lokacija, preduzece, datum_i
                     poruka=f"""
                         Izmenjen termin zakazan u {preduzece} za {datum_i_vreme}. Izmenio ga je {zakazivac}.
                         \nNa linku ispod možete izmeniti vreme i datum termina, potvrditi ga ili otkazati.
-                        \nhttps://test.mojtermin.site/zakazi/{vlasnikId}/izmena/{token}
+                        \nhttps://mojtermin.site/zakazi/{vlasnikId}/izmena/{token}
                         \nStari podaci: 
                         \nIme: {stariPodaci.get("ime", "N/A")},
                         \nLokacija: {stariPodaci.get("lokacija", "N/A")},
@@ -209,8 +209,8 @@ def send_email_to_workers(vlasnikId, naslov, token, lokacija, preduzece, datum_i
                             <body>
                                 <div class="content">
                                     <p>Izmenjen termin zakazan u {preduzece} za {datum_i_vreme}. Izmenio ga je {zakazivac}</p>
-                                    <a href="https://test.mojtermin.site/zakazi/{vlasnikId}/izmeni/{token}/potvrda/{korisnik_id}" class="btn">Potvrdi termin</a>
-                                    <a href="https://test.mojtermin.site/zakazi/{vlasnikId}/izmeni/{token}" class="btn">Izmenite termin</a>
+                                    <a href="https://mojtermin.site/zakazi/{vlasnikId}/izmeni/{token}/potvrda/{korisnik_id}" class="btn">Potvrdi termin</a>
+                                    <a href="https://mojtermin.site/zakazi/{vlasnikId}/izmeni/{token}" class="btn">Izmenite termin</a>
                                     <p style="margin-top: 20px;">Stari podaci:</p>
                                     <ul>
                                         <li>Ime: {stariPodaci.get("ime", "N/A")}</li>
@@ -229,7 +229,7 @@ def send_email_to_workers(vlasnikId, naslov, token, lokacija, preduzece, datum_i
                     to_email=email,
                     poruka=f"""Termin koji je bio zakazan na drugom radnom mestu je izmenjen i odabrano je novo radno mesto - {preduzece} za {datum_i_vreme}. Izmenio ga je {zakazivac}.
                         \nNa linku ispod možete izmeniti vreme i datum termina, potvrditi ga ili otkazati.
-                        \nhttps://test.mojtermin.site/zakazi/{vlasnikId}/izmena/{token}
+                        \nhttps://mojtermin.site/zakazi/{vlasnikId}/izmena/{token}
                         \nStari podaci: 
                         \nIme: {stariPodaci.get("ime", "N/A")},
                         \nLokacija: {stariPodaci.get("lokacija", "N/A")} (id),
@@ -243,8 +243,8 @@ def send_email_to_workers(vlasnikId, naslov, token, lokacija, preduzece, datum_i
                             <body>
                                 <div class="content">
                                     <p>Termin koji je bio zakazan na drugom radnom mestu je izmenjen i odabrano je novo radno mesto - {preduzece} za {datum_i_vreme}. Izmenio ga je {zakazivac}.</p>
-                                    <a href="https://test.mojtermin.site/zakazi/{vlasnikId}/izmeni/{token}/potvrda/{korisnik_id}" class="btn">Potvrdi termin</a>
-                                    <a href="https://test.mojtermin.site/zakazi/{vlasnikId}/izmeni/{token}" class="btn">Izmenite termin</a>
+                                    <a href="https://mojtermin.site/zakazi/{vlasnikId}/izmeni/{token}/potvrda/{korisnik_id}" class="btn">Potvrdi termin</a>
+                                    <a href="https://mojtermin.site/zakazi/{vlasnikId}/izmeni/{token}" class="btn">Izmenite termin</a>
                                     <p style="margin-top: 20px;">Stari podaci:</p>
                                     <ul>
                                         <li>Ime: {stariPodaci.get("ime", "N/A")}</li>

@@ -378,7 +378,7 @@ def potvrdi_termin_by_token(token):
                         <h2>Poštovani,</h2>
                         <p>Vaš termin u <b>{firma_ime}</b> je <b>potvrdio {username}</b>.</p>
                         <p><b>Termin:</b> {datum_prikaz}</p>
-                        <p style="margin-top: 20px;">Hvala što ste izabrali našu uslugu! Ovu uslugu je omogućio servis <b><a href="https://test.mojtermin.site">Moj Termin</a></b>.</p>
+                        <p style="margin-top: 20px;">Hvala što ste izabrali našu uslugu! Ovu uslugu je omogućio servis <b><a href="https://mojtermin.site">Moj Termin</a></b>.</p>
                     </div>
                 </body>
             </html>

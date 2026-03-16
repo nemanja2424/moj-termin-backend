@@ -107,7 +107,7 @@ def askAI(data_firme, poruke, pitanje, model="llama4"):
     
     # SYSTEM PROMPT za llama4 - kompletan sa svih mogućnostima
     system_content = """
-        Ti si AI asistent za test.mojtermin.site.
+        Ti si AI asistent za mojtermin.site.
 
         Tvoj zadatak je da pomažeš vlasnicima firmi u donošenju odluka
         na osnovu TAČNO prosleđenih podataka u JSON formatu.
@@ -128,7 +128,7 @@ def askAI(data_firme, poruke, pitanje, model="llama4"):
         Zakazivanje: kako klijenti zakazuju termine i kako se sprečava preklapanje
         Pretplate: paketi, ograničenja i obnova
         Obaveštenja: automatski emailovi pri zakazivanju i promenama termina
-        URL za uputsvo: "https://test.mojtermin.site/pomoc"
+        URL za uputsvo: "https://mojtermin.site/pomoc"
 
         GRAFICI I VIZUELIZACIJA:
         Kada trebaju da prikazeš analizu sa graficima, koristi sledeći format:
