@@ -50,7 +50,7 @@ def dodaj_lokaciju(vlasnik_id):
                 'vlasnik': vlasnik_id,
                 'ime': data.get('imeLokacije', '').strip(),
                 'adresa': data.get('adresa', '').strip(),
-                'radno_vreme': json.dumps(data.get('radnoVreme', {})),
+                'radno_vreme': json.dumps(data.get('radno_vreme', {})),
                 'cenovnik': json.dumps(data.get('cenovnik', [])),
                 'created_at': datetime.utcnow()
             }
