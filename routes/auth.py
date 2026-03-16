@@ -408,6 +408,7 @@ def get_podesanja_data():
                 preduzeca_query = text("""
                     SELECT id, ime, adresa, radno_vreme, cenovnik, overlapLimit FROM preduzeca 
                     WHERE vlasnik = :vlasnik_id
+                    ORDER BY id
                 """)
                 preduzeca_results = db.session.execute(preduzeca_query, {'vlasnik_id': current_user_id}).fetchall()
                 
