@@ -139,7 +139,7 @@ def update_paket_limits():
             'message': 'paket_limits uspešno ažuriran',
             'user_id': result[0],
             'email': result[1],
-            'paket_limits': json.loads(result[2])
+            'paket_limits': result[2] if result[2] else {}
         }), 200
         
     except Exception as e:
@@ -228,7 +228,7 @@ def update_ai_info():
             'message': 'ai_info uspešno ažuriran',
             'user_id': result[0],
             'email': result[1],
-            'ai_info': json.loads(result[2])
+            'ai_info': result[2] if result[2] else {}
         }), 200
         
     except Exception as e:
