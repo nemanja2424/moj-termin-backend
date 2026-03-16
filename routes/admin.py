@@ -35,7 +35,7 @@ def get_token():
     return jsonify(msg="Bad credentials"), 401
 
 
-@admin_bp.route('/paket_limits', methods=['PATCH'])
+@admin_bp.route('/paket_limits', methods=['POST'])
 @jwt_required()
 def update_paket_limits():
     """
@@ -124,7 +124,7 @@ def update_paket_limits():
         }), 500
 
 
-@admin_bp.route('/ai_info', methods=['PATCH'])
+@admin_bp.route('/ai_info', methods=['POST'])
 @jwt_required()
 def update_ai_info():
     """
@@ -213,7 +213,7 @@ def update_ai_info():
         }), 500
 
 
-@admin_bp.route('/paket', methods=['PATCH'])
+@admin_bp.route('/paket', methods=['POST'])
 @jwt_required()
 def update_paket():
     """
