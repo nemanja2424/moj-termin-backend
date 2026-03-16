@@ -425,7 +425,8 @@ def izmeniTermin():
                     vreme_rezervacije = :vreme_rezervacije,
                     usluga = :usluga,
                     opis = :opis,
-                    ime_firme = :ime_firme
+                    ime_firme = :ime_firme,
+                    potvrdio = NULL
                 WHERE token = :token
                 RETURNING id, ime_firme, ime, email, telefon, datum_rezervacije, 
                           vreme_rezervacije, usluga, opis
