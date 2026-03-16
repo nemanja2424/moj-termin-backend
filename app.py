@@ -3,7 +3,7 @@ from flask import Flask, jsonify, request, send_from_directory
 from werkzeug.utils import secure_filename
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
-from flask_jwt_extended import JWTManager
+from flask_jwt_extended import JWTManager, jwt_required
 from dotenv import load_dotenv
 from routes.auth import auth_bp
 from datetime import timedelta, datetime
@@ -79,6 +79,8 @@ app.register_blueprint(aiInfo_bp, url_prefix="/api/ai/info")
 from routes.zakazivanja import zakazivanja_bp
 app.register_blueprint(zakazivanja_bp, url_prefix="/api/zakazivanja")
 
+from routes.admin import admin_bp
+app.register_blueprint(admin_bp, url_prefix="/api/admin")
 
 
 from routes.tests import tests_bp
@@ -94,9 +96,10 @@ app.register_blueprint(tests_bp, url_prefix='/api/tests')
 def hello():
     return jsonify({"message": "Zdravo iz Flask API-ja!"})
 
-UPLOAD_FOLDER = '/var/www/moj-termin-frontend-test/public/logos'
+UPLOAD_FOLDER = '/var/www/moj-termin-frontend/public/logos'
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 @app.route('/api/novi_logo', methods=['POST'])
+@jwt_required()
 def upload_logo():
     if 'file' not in request.files:
         return jsonify({'error': 'No file part'}), 400
@@ -135,10 +138,10 @@ def upload_logo():
 @app.route("/api/logo/<filename>")
 def serve_logo(filename):
     if filename == "/images/logo.webp":
-        return send_from_directory("/var/www/moj-termin-frontend-test/public/Images", "logo.webp")
+        return send_from_directory("/var/www/moj-termin-frontend/public/Images", "logo.webp")
     
     safe_name = secure_filename(filename)
-    putanja = f'/var/www/moj-termin-frontend-test/public/logos'
+    putanja = f'/var/www/moj-termin-frontend/public/logos'
     print(putanja)
     return send_from_directory(putanja, safe_name)
 
@@ -880,6 +883,7 @@ def otkaziTermin():
 
 # AI RUTE >>>>>>>>>>>>>
 @app.route('/api/askAI', methods=['POST'])
+@jwt_required()
 def askAI_route():
     """
     Ruta koja poziva askAI funkciju nakon provere validnosti tokena i limitacija.
@@ -944,7 +948,7 @@ def askAI_route():
 def get_ai_usage():
     """
     Vraća podatke o korišćenju AI za određeni dan.
-    Čita .json fajl iz backend_tools/ai_usage/[owner_id]/[datum].json
+    Čita .json fajl iz ai/ai_usage/[owner_id]/[datum].json
     
     Query parametri:
     - owner_id (obavezno): ID vlasnika
@@ -968,7 +972,7 @@ def get_ai_usage():
             return jsonify({'error': 'Nedostaje owner_id parametar'}), 400
         
         # Konstruiši putanju do fajla
-        file_path = f'backend_tools/ai_usage/{owner_id}/{date}.json'
+        file_path = f'ai/ai_usage/{owner_id}/{date}.json'
         
         # Provera da li fajl postoji
         if os.path.exists(file_path):
@@ -1002,6 +1006,7 @@ def get_ai_usage():
 # ========== CHAT RUTE ==========
 
 @app.route('/api/chat/create', methods=['POST'])
+@jwt_required()
 def create_chat():
     """
     Kreira novi chat za korisnika
@@ -1024,6 +1029,7 @@ def create_chat():
 
 
 @app.route('/api/chat/<chat_id>', methods=['GET'])
+@jwt_required()
 def get_chat(chat_id):
     """
     Učitava specifičan chat
@@ -1049,6 +1055,7 @@ def get_chat(chat_id):
 
 
 @app.route('/api/chats', methods=['GET'])
+@jwt_required()
 def list_chats():
     """
     Vraća sve chatove za trenutnog korisnika
@@ -1069,6 +1076,7 @@ def list_chats():
 
 
 @app.route('/api/chat/<chat_id>/message', methods=['POST'])
+@jwt_required()
 def add_message_to_chat(chat_id):
     """
     Dodaje poruku u chat i čuva je
@@ -1099,6 +1107,7 @@ def add_message_to_chat(chat_id):
 
 
 @app.route('/api/chat/<chat_id>', methods=['DELETE'])
+@jwt_required()
 def delete_chat_route(chat_id):
     """
     Briše chat (samo kreator može)
@@ -1124,6 +1133,7 @@ def delete_chat_route(chat_id):
 
 
 @app.route('/api/chat/<chat_id>/rename', methods=['PATCH'])
+@jwt_required()
 def rename_chat_route(chat_id):
     """
     Preimenovava chat (samo kreator može)

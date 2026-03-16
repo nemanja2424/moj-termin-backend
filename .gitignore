@@ -1,8 +1,11 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
 /backend_tools/__pycache__
+/backend_tools/chats
+/backend_tools/ai_usage
 
-/backend_tools/__pycache__
+/ai/__pycache__
+/ai/__pycache__/askAI.cpython-313.pyc
 /ai/chats
 /ai/ai_usage
 

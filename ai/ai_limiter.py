@@ -98,7 +98,7 @@ def get_daily_usage(owner_id, date=None):
     if date is None:
         date = datetime.now().strftime('%Y-%m-%d')
     
-    file_path = f'backend_tools/ai_usage/{owner_id}/{date}.json'
+    file_path = f'ai/ai_usage/{owner_id}/{date}.json'
     
     # Default struktura
     default_usage = {
@@ -125,7 +125,7 @@ def save_daily_usage(owner_id, usage_data, date=None):
     if date is None:
         date = datetime.now().strftime('%Y-%m-%d')
     
-    dir_path = f'backend_tools/ai_usage/{owner_id}'
+    dir_path = f'ai/ai_usage/{owner_id}'
     file_path = f'{dir_path}/{date}.json'
     
     # Kreiraj direktorijum ako ne postoji
