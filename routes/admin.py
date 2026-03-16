@@ -17,6 +17,22 @@ admin_bp = Blueprint("admin", __name__)
 def hello():
     return jsonify({"message": "Zdravo ADMINE!"})
 
+@admin_bp.route('/token', methods=['POST'])
+def get_token():
+    data = request.json
+    if not data:
+        return jsonify({"error": "Nedostaje JSON u zahtevу"}), 400
+    
+    username = data.get("username")
+    password = data.get("password")
+    env_username = os.getenv("ADMIN_USERNAME")
+    env_password = os.getenv("ADMIN_PWD")
+    
+    if username == env_username and password == env_password:
+        # expires_delta=None znači da token NE ISTIČE
+        token = create_access_token(identity=username, expires_delta=None)
+        return jsonify(access_token=token), 200
+    return jsonify(msg="Bad credentials"), 401
 
 
 @admin_bp.route('/paket_limits', methods=['PATCH'])
