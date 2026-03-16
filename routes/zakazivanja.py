@@ -310,7 +310,7 @@ def potvrdi_termin_by_token(token):
         from mailManager import send_confirmation_email, html_head
         
         data = request.json
-        potvrdio_id = data.get('potvrdio_id')
+        potvrdio_id = data.get('id')
         
         # Validacija
         if not potvrdio_id:
