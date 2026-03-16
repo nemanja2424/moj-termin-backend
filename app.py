@@ -415,22 +415,41 @@ def izmeniTermin():
                     datum_rezervacije = f"{godina:04d}-{mesec:02d}-{dan:02d}"
             
             # 3. Ažuriraj zakazivanje u bazi
-            update_query = text("""
-                UPDATE zakazivanja 
-                SET 
-                    ime = :ime,
-                    email = :email,
-                    telefon = :telefon,
-                    datum_rezervacije = :datum_rezervacije,
-                    vreme_rezervacije = :vreme_rezervacije,
-                    usluga = :usluga,
-                    opis = :opis,
-                    ime_firme = :ime_firme,
-                    potvrdio = NULL
-                WHERE token = :token
-                RETURNING id, ime_firme, ime, email, telefon, datum_rezervacije, 
-                          vreme_rezervacije, usluga, opis
-            """)
+            # Ako korisnik menja (tipUlaska == 2), resetuj potvrdu
+            if tip_ulaska == 2:
+                update_query = text("""
+                    UPDATE zakazivanja 
+                    SET 
+                        ime = :ime,
+                        email = :email,
+                        telefon = :telefon,
+                        datum_rezervacije = :datum_rezervacije,
+                        vreme_rezervacije = :vreme_rezervacije,
+                        usluga = :usluga,
+                        opis = :opis,
+                        ime_firme = :ime_firme,
+                        potvrdio = NULL
+                    WHERE token = :token
+                    RETURNING id, ime_firme, ime, email, telefon, datum_rezervacije, 
+                              vreme_rezervacije, usluga, opis
+                """)
+            else:
+                # Ako zaposlenik menja, ne resetuj potvrdu
+                update_query = text("""
+                    UPDATE zakazivanja 
+                    SET 
+                        ime = :ime,
+                        email = :email,
+                        telefon = :telefon,
+                        datum_rezervacije = :datum_rezervacije,
+                        vreme_rezervacije = :vreme_rezervacije,
+                        usluga = :usluga,
+                        opis = :opis,
+                        ime_firme = :ime_firme
+                    WHERE token = :token
+                    RETURNING id, ime_firme, ime, email, telefon, datum_rezervacije, 
+                              vreme_rezervacije, usluga, opis
+                """)
             
             update_result = db.session.execute(update_query, {
                 'ime': podaci.get('ime') or podaci.get('email'),
