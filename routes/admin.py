@@ -386,7 +386,6 @@ def get_ai_usage():
         
         # Vrati samo sum objekat
         return jsonify({
-            'status': 200,
             'sum': usage_data.get('sum', {})
         }), 200
         
@@ -429,7 +428,6 @@ def get_ai_usage_history():
         
         # Vrati samo history niz
         return jsonify({
-            'status': 200,
             'history': usage_data.get('history', [])
         }), 200
         
