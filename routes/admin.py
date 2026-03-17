@@ -427,9 +427,9 @@ def get_ai_usage_history():
             usage_data = json.load(f)
         
         # Vrati samo history niz
-        return jsonify({
-            'history': usage_data.get('history', [])
-        }), 200
+        return jsonify(
+            usage_data.get('history', [])
+        ), 200
         
     except json.JSONDecodeError as e:
         print(f"❌ Greška pri parsiranju JSON fajla: {str(e)}")
