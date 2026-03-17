@@ -51,6 +51,15 @@ app.config['SQLALCHEMY_DATABASE_URI'] = (
     f"@{os.getenv('VPS_IP')}:{os.getenv('PORT')}/{os.getenv('DATABASE')}"
 )
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+    'pool_size': 20,
+    'pool_recycle': 3600,  # Recikliraj konekciju svakog sata
+    'pool_pre_ping': True,  # Provjeri konekciju prije koištenja
+    'connect_args': {
+        'connect_timeout': 10,
+        'application_name': 'moj_termin_api'
+    }
+}
 
 db = SQLAlchemy(app)
 
