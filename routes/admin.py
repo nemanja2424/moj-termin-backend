@@ -385,9 +385,9 @@ def get_ai_usage():
             usage_data = json.load(f)
         
         # Vrati samo sum objekat
-        return jsonify({
-            'sum': usage_data.get('sum', {})
-        }), 200
+        return jsonify(
+            usage_data.get('models', {})
+        ), 200
         
     except json.JSONDecodeError as e:
         print(f"❌ Greška pri parsiranju JSON fajla: {str(e)}")
