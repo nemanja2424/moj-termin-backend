@@ -3,7 +3,7 @@ from flask import Flask, jsonify, request, send_from_directory
 from werkzeug.utils import secure_filename
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
-from flask_jwt_extended import JWTManager, jwt_required
+from flask_jwt_extended import JWTManager, jwt_required, get_jwt_identity
 from dotenv import load_dotenv
 from routes.auth import auth_bp
 from datetime import timedelta, datetime
@@ -120,12 +120,8 @@ def upload_logo():
     filename = secure_filename(file.filename)
     file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
 
-    userId = request.form.get('id')
-    authToken = request.form.get('authToken')
+    userId = get_jwt_identity()
     logoName = f'{file.filename}'
-
-    if not userId or not authToken:
-        return jsonify({'error': 'Nedostaju podaci'}), 400
 
     try:
         with app.app_context():
