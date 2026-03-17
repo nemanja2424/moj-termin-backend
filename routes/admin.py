@@ -361,3 +361,89 @@ def update_paket():
         }), 500
 
 
+@admin_bp.route('/ai_usage', methods=['GET'])
+def get_ai_usage():
+    """
+    Dohvata AI usage statistiku iz ai/ai_usage/sumUsage.json fajla.
+    
+    Vraća:
+    - 200: sum objekat sa total_token_usage, entry_token_usage, generated_token_usage, total_req
+    - 404: Fajl nije pronađen
+    - 500: Serverska greška
+    """
+    try:
+        # Učitaj sumUsage.json fajl
+        usage_file_path = os.path.join(
+            os.path.dirname(__file__), 
+            '..', 'ai', 'ai_usage', 'sumUsage.json'
+        )
+        
+        if not os.path.exists(usage_file_path):
+            return jsonify({'error': 'Fajl sa AI usage statistikom nije pronađen'}), 404
+        
+        with open(usage_file_path, 'r', encoding='utf-8') as f:
+            usage_data = json.load(f)
+        
+        # Vrati samo sum objekat
+        return jsonify({
+            'status': 200,
+            'sum': usage_data.get('sum', {})
+        }), 200
+        
+    except json.JSONDecodeError as e:
+        print(f"❌ Greška pri parsiranju JSON fajla: {str(e)}")
+        return jsonify({
+            'status': 500,
+            'error': 'Greška pri čitanju AI usage podataka'
+        }), 500
+    except Exception as e:
+        print(f"❌ Greška u /api/admin/ai_usage: {str(e)}")
+        return jsonify({
+            'status': 500,
+            'error': str(e)
+        }), 500
+
+
+@admin_bp.route('/ai_usage/history', methods=['GET'])
+def get_ai_usage_history():
+    """
+    Dohvata AI usage istoriju iz ai/ai_usage/sumUsage.json fajla.
+    
+    Vraća:
+    - 200: history niz sa svim zahtjevima
+    - 404: Fajl nije pronađen
+    - 500: Serverska greška
+    """
+    try:
+        # Učitaj sumUsage.json fajl
+        usage_file_path = os.path.join(
+            os.path.dirname(__file__), 
+            '..', 'ai', 'ai_usage', 'sumUsage.json'
+        )
+        
+        if not os.path.exists(usage_file_path):
+            return jsonify({'error': 'Fajl sa AI usage statistikom nije pronađen'}), 404
+        
+        with open(usage_file_path, 'r', encoding='utf-8') as f:
+            usage_data = json.load(f)
+        
+        # Vrati samo history niz
+        return jsonify({
+            'status': 200,
+            'history': usage_data.get('history', [])
+        }), 200
+        
+    except json.JSONDecodeError as e:
+        print(f"❌ Greška pri parsiranju JSON fajla: {str(e)}")
+        return jsonify({
+            'status': 500,
+            'error': 'Greška pri čitanju AI usage podataka'
+        }), 500
+    except Exception as e:
+        print(f"❌ Greška u /api/admin/ai_usage/history: {str(e)}")
+        return jsonify({
+            'status': 500,
+            'error': str(e)
+        }), 500
+
+
