@@ -12,6 +12,23 @@ load_dotenv()
 
 admin_bp = Blueprint("admin", __name__)
 
+
+def verify_admin_credentials(request_data):
+    """
+    Proverava admin kredencijale iz zahteva.
+    Vraća True ako su kredencijali ispravni, False inače.
+    """
+    if not request_data:
+        return False
+    
+    username = request_data.get('username')
+    password = request_data.get('password')
+    env_username = os.getenv('ADMIN_USERNAME')
+    env_password = os.getenv('ADMIN_PWD')
+    
+    return username == env_username and password == env_password
+
+
 # Test ruta
 @admin_bp.route('/hello', methods=['GET'])
 def hello():
@@ -63,19 +80,20 @@ def get_user_info(user_id):
 
 
 @admin_bp.route('/paket_limits', methods=['PATCH'])
-@jwt_required()
 def update_paket_limits():
     """
     Ažurira paket_limits polje za korisnika.
     
     Očekuje:
+    - username: string (admin kredencijali)
+    - password: string (admin kredencijali)
     - id: int (obavezno ako se ne prosleđuje email)
     - email: string (obavezno ako se ne prosleđuje id)
     - paket_limits: dict/object (JSONB)
     
     Vraća:
     - 200: Uspešna ažuriranja
-    - 400: Validacijska greška
+    - 400: Validacijska greška ili neispravni kredencijali
     - 404: Korisnik nije pronađen
     """
     try:
@@ -85,6 +103,10 @@ def update_paket_limits():
         
         if not data:
             return jsonify({'error': 'Nedostaje JSON u zahtevу'}), 400
+        
+        # Provera admin kredencijala
+        if not verify_admin_credentials(data):
+            return jsonify({'error': 'Neispravni admin kredencijali'}), 401
         
         user_id = data.get('id')
         email = data.get('email')
@@ -152,19 +174,20 @@ def update_paket_limits():
 
 
 @admin_bp.route('/ai_info', methods=['PATCH'])
-@jwt_required()
 def update_ai_info():
     """
     Ažurira ai_info polje za korisnika.
     
     Očekuje:
+    - username: string (admin kredencijali)
+    - password: string (admin kredencijali)
     - id: int (obavezno ako se ne prosleđuje email)
     - email: string (obavezno ako se ne prosleđuje id)
     - ai_info: dict/object (JSONB)
     
     Vraća:
     - 200: Uspešna ažuriranja
-    - 400: Validacijska greška
+    - 400: Validacijska greška ili neispravni kredencijali
     - 404: Korisnik nije pronađen
     """
     try:
@@ -174,6 +197,10 @@ def update_ai_info():
         
         if not data:
             return jsonify({'error': 'Nedostaje JSON u zahtevу'}), 400
+        
+        # Provera admin kredencijala
+        if not verify_admin_credentials(data):
+            return jsonify({'error': 'Neispravni admin kredencijali'}), 401
         
         user_id = data.get('id')
         email = data.get('email')
@@ -241,19 +268,20 @@ def update_ai_info():
 
 
 @admin_bp.route('/paket', methods=['PATCH'])
-@jwt_required()
 def update_paket():
     """
     Ažurira paket polje za korisnika.
     
     Očekuje:
+    - username: string (admin kredencijali)
+    - password: string (admin kredencijali)
     - id: int (obavezno ako se ne prosleđuje email)
     - email: string (obavezno ako se ne prosleđuje id)
     - paket: string (obavezno)
     
     Vraća:
     - 200: Uspešna ažuriranja
-    - 400: Validacijska greška
+    - 400: Validacijska greška ili neispravni kredencijali
     - 404: Korisnik nije pronađen
     """
     try:
@@ -263,6 +291,10 @@ def update_paket():
         
         if not data:
             return jsonify({'error': 'Nedostaje JSON u zahtevу'}), 400
+        
+        # Provera admin kredencijala
+        if not verify_admin_credentials(data):
+            return jsonify({'error': 'Neispravni admin kredencijali'}), 401
         
         user_id = data.get('id')
         email = data.get('email')
