@@ -91,7 +91,7 @@ class RAGManager:
             logger.info(f"🔍 Generisem embedding za pitanje: '{pitanje[:50]}...'")
             query_embedding = self.generate_embedding(pitanje)
             
-            # 2. Odredì koje tipove may vidjeti korisnik
+            # 2. Odredì koje tipove može vidjeti korisnik
             if tip_korisnika == 'vlasnik':
                 # Vlasnik vidi SVE tipove
                 allowed_types = [
@@ -107,25 +107,36 @@ class RAGManager:
                     EmbeddingTypes.TERMIN
                 ]
             
-            # 3. SQL pretraga sa embeddings vektorom
-            # Formatiraš embedding kao PostgreSQL pgvector format [a,b,c,...]
+            # 3. SQL pretraga sa surowym psycopg2 connection
+            # SQLAlchemy text() escapeuje placeholders što se ne slaže sa pgvector operatorima
             embedding_str = '[' + ','.join(str(x) for x in query_embedding) + ']'
             
-            query = text("""
-                SELECT id, tekst, tip_id, embedding <-> %(embedding)s::vector as distance
-                FROM embeddings
-                WHERE user_id = %(user_id)s
-                  AND tip_id = ANY(%(types)s)
-                ORDER BY embedding <-> %(embedding)s::vector
-                LIMIT %(k)s
-            """)
-            
-            results = self.db.session.execute(query, {
-                'user_id': int(user_id),
-                'embedding': embedding_str,
-                'types': allowed_types,
-                'k': int(k)
-            }).fetchall()
+            # Koristi raw connection sa psycopg2
+            conn = self.db.engine.raw_connection()
+            try:
+                cursor = conn.cursor()
+                
+                query_sql = """
+                    SELECT id, tekst, tip_id, embedding <-> %s::vector as distance
+                    FROM embeddings
+                    WHERE user_id = %s
+                      AND tip_id = ANY(%s)
+                    ORDER BY embedding <-> %s::vector
+                    LIMIT %s
+                """
+                
+                cursor.execute(query_sql, (
+                    embedding_str,
+                    int(user_id),
+                    allowed_types,
+                    embedding_str,
+                    int(k)
+                ))
+                
+                results = cursor.fetchall()
+                cursor.close()
+            finally:
+                conn.close()
             
             logger.info(f"✅ Pronađeno {len(results)} relevantnih dokumenata")
             
