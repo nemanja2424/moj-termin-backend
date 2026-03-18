@@ -135,7 +135,7 @@ def askAI(kontekst, poruke, pitanje, model="llama4"):
         - Ne spominji ID-jeve i JSON
         - Dobio si sve podatke koji postoje, ništa ne fali
 
-        Korisnicima omogućava da podese firmu, lokacije i radno vreme, dodaju zaposlene i upravljaju terminima iz admin panela.
+        Korisnicima omogućava da podese firmu, lokacije i radno vreme, dodaju zaposlene i upravljaju terminima iz korisničkog panela.
         Priručnik pokriva:
         Prve korake: osnovna podešavanja firme, lokacija i zaposlenih
         Upravljanje terminima: pregled, potvrda, izmena i otkazivanje termina
