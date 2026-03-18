@@ -81,58 +81,66 @@ class RAGManager:
         Args:
             user_id (int): ID korisnika koji pita
             pitanje (str): Pitanje korisnika
-            tip_korisnika (str): 'vlasnik' ili 'zakazivac'
-            k (int): Broj rezultata (default 3)
+            tip_korisnika (str): 'vlasnik' ili 'zaposlen'
+            k (int): Broj rezultata (default 6)
             
         Returns:
-            list: Lista relevantnih dokumenata (samo tekst)
+            list: Lista relevantnih dokumenata sortiranih po relevantnosti
         """
         try:
             # 1. Generiši embedding za pitanje
             logger.info(f"🔍 Generisem embedding za pitanje: '{pitanje[:50]}...'")
             query_embedding = self.generate_embedding(pitanje)
-            
-            # 2. Odredì koje tipove može vidjeti korisnik
-            if tip_korisnika == 'vlasnik':
-                # Vlasnik vidi SVE tipove
-                allowed_types = [
-                    EmbeddingTypes.USER,
-                    EmbeddingTypes.FIRMA,
-                    EmbeddingTypes.TERMIN,
-                    EmbeddingTypes.VLASNIK
-                ]
-            else:  # zakazivac
-                # Zakazivač vidi samo termin i firma info
-                allowed_types = [
-                    EmbeddingTypes.FIRMA,
-                    EmbeddingTypes.TERMIN
-                ]
-            
-            # 3. SQL pretraga sa surowym psycopg2 connection
-            # SQLAlchemy text() escapeuje placeholders što se ne slaže sa pgvector operatorima
             embedding_str = '[' + ','.join(str(x) for x in query_embedding) + ']'
             
-            # Koristi raw connection sa psycopg2
+            # 2. Koristi raw connection sa psycopg2
             conn = self.db.engine.raw_connection()
             try:
                 cursor = conn.cursor()
                 
-                query_sql = """
-                    SELECT id, tekst, tip_id, embedding <-> %s::vector as distance
-                    FROM embeddings
-                    WHERE user_id = %s
-                      AND tip_id = ANY(%s)
-                    ORDER BY embedding <-> %s::vector
-                    LIMIT %s
-                """
-                
-                cursor.execute(query_sql, (
-                    embedding_str,
-                    int(user_id),
-                    allowed_types,
-                    embedding_str,
-                    int(k)
-                ))
+                if tip_korisnika == 'vlasnik':
+                    # VLASNIK: Vidi sve svoje podatke (ljega, radnike, termine)
+                    query_sql = """
+                        SELECT id, tekst, tip_id, firma_id, user_id, embedding <-> %s::vector as distance
+                        FROM embeddings
+                        WHERE user_id = %s
+                        ORDER BY embedding <-> %s::vector
+                        LIMIT %s
+                    """
+                    cursor.execute(query_sql, (
+                        embedding_str,
+                        int(user_id),
+                        embedding_str,
+                        int(k)
+                    ))
+                else:  # 'zaposlen'
+                    # ZAPOSLENIK: Prvo pronađi njegovu firmu
+                    cursor.execute("SELECT zaposlen_u FROM users WHERE id = %s", (int(user_id),))
+                    firma_result = cursor.fetchone()
+                    firma_id = firma_result[0] if firma_result else None
+                    
+                    if not firma_id:
+                        logger.warning(f"⚠️  Zaposlenik {user_id} nema postavljenu firmu")
+                        return []
+                    
+                    # ZAPOSLENIK: Vidi podatke svoje firme + svoje podatke + termine svoje firme
+                    query_sql = """
+                        SELECT id, tekst, tip_id, firma_id, user_id, embedding <-> %s::vector as distance
+                        FROM embeddings
+                        WHERE (
+                            (firma_id = %s) OR
+                            (user_id = %s AND tip_id = 1)
+                        )
+                        ORDER BY embedding <-> %s::vector
+                        LIMIT %s
+                    """
+                    cursor.execute(query_sql, (
+                        embedding_str,
+                        int(firma_id),
+                        int(user_id),
+                        embedding_str,
+                        int(k)
+                    ))
                 
                 results = cursor.fetchall()
                 cursor.close()
@@ -141,14 +149,15 @@ class RAGManager:
             
             logger.info(f"✅ Pronađeno {len(results)} relevantnih dokumenata")
             
-            # 4. Ekstraktuj samo tekstove (bez embeddings vektora)
+            # 3. Ekstraktuj dokumente
             documents = []
             for row in results:
-                doc_id, tekst, tip_id, distance = row
+                doc_id, tekst, tip_id, firma_id, owner_id, distance = row
                 documents.append({
                     'id': doc_id,
                     'tekst': tekst,
                     'tip_id': tip_id,
+                    'firma_id': firma_id,
                     'distance': float(distance)
                 })
                 logger.info(f"   📄 Doc {doc_id} (tip {tip_id}): relevance={distance:.3f}")
@@ -157,7 +166,8 @@ class RAGManager:
             
         except Exception as e:
             logger.error(f"❌ Greška pri retrieval-u: {str(e)}")
-            self.db.session.rollback()  # Reset transaction nakon greške
+            self.db.session.rollback()
+            return []
             return []
     
     def format_context(self, documents):
