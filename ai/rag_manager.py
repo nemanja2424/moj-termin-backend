@@ -112,12 +112,12 @@ class RAGManager:
             embedding_str = '[' + ','.join(str(x) for x in query_embedding) + ']'
             
             query = text("""
-                SELECT id, tekst, tip_id, embedding <-> :embedding::vector as distance
+                SELECT id, tekst, tip_id, embedding <-> %(embedding)s::vector as distance
                 FROM embeddings
-                WHERE user_id = :user_id
-                  AND tip_id = ANY(:types)
-                ORDER BY embedding <-> :embedding::vector
-                LIMIT :k
+                WHERE user_id = %(user_id)s
+                  AND tip_id = ANY(%(types)s)
+                ORDER BY embedding <-> %(embedding)s::vector
+                LIMIT %(k)s
             """)
             
             results = self.db.session.execute(query, {
@@ -145,6 +145,7 @@ class RAGManager:
             
         except Exception as e:
             logger.error(f"❌ Greška pri retrieval-u: {str(e)}")
+            self.db.session.rollback()  # Reset transaction nakon greške
             return []
     
     def format_context(self, documents):
