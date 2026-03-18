@@ -241,8 +241,15 @@ Zaposlenik u: {user_data.get('zaposlen_u', 'N/A')}
         cenovnik_str = ""
         if cenovnik:
             cenovnik_str = "\nCenovnik:\n"
-            for usluga, cena in cenovnik.items():
-                cenovnik_str += f"  {usluga}: {cena} din\n"
+            if isinstance(cenovnik, dict):
+                for usluga, cena in cenovnik.items():
+                    cenovnik_str += f"  {usluga}: {cena} din\n"
+            elif isinstance(cenovnik, list):
+                for item in cenovnik:
+                    if isinstance(item, dict):
+                        usluga = item.get('usluga', 'N/A')
+                        cena = item.get('cena', 'N/A')
+                        cenovnik_str += f"  {usluga}: {cena} din\n"
         
         tekst = f"""
 Firma: {firma_data.get('ime', 'N/A')}

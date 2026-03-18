@@ -90,7 +90,7 @@ def batch_import_users(limit=None):
             
             db.session.execute(insert_query, {
                 'user_id': user_id,
-                'firma_id': 0,  # Nema firme za user tip
+                'firma_id': None,  # NULL - nema firme za user tip
                 'tip_id': EmbeddingTypes.USER,
                 'tekst': tekst,
                 'embedding': str(embedding)
@@ -324,7 +324,7 @@ def batch_import_vlasnici(limit=None):
             
             db.session.execute(insert_query, {
                 'user_id': vlasnik_id,
-                'firma_id': 0,  # Nema firme za vlasnik tip
+                'firma_id': None,  # NULL - nema firme za vlasnik tip
                 'tip_id': EmbeddingTypes.VLASNIK,
                 'tekst': tekst,
                 'embedding': str(embedding)
