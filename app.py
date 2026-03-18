@@ -96,6 +96,11 @@ from routes.tests import tests_bp
 app.register_blueprint(tests_bp, url_prefix='/api/tests')
 
 
+# Pre-učitaj embedding model pri pokretanju aplikacije
+# Ovo sprečava kašnjenje na prvom AI zahtjevu
+with app.app_context():
+    from ai.rag_manager import preload_model
+    preload_model()
 
 
 

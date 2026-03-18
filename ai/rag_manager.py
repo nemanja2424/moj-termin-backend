@@ -12,20 +12,23 @@ import threading
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Globalni model - učitava se samo jednom
+# Globalni model - učitava se samo jednom pri pokretanju
 _model = None
 _model_lock = threading.Lock()
 
 def get_model():
-    """Lazy load model - učitaj samo prvi put"""
+    """Vrati cache-irani model"""
     global _model
     if _model is None:
-        with _model_lock:
-            if _model is None:
-                logger.info("🔄 Učitavam sentence-transformers model...")
-                _model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
-                logger.info("✅ Model učitan i cache-iran globalno")
+        _model = SentenceTransformer('sentence-transformers/multilingual-MiniLM-L6-v2')
+        logger.info("✅ Multilingual model učitan")
     return _model
+
+def preload_model():
+    """Force-loadaj model pri pokretanju app-a"""
+    logger.info("🔄 Pre-učitavam embedding model pri pokretanju...")
+    get_model()
+    logger.info("✅ Model je spreman za upite")
 
 
 class EmbeddingTypes:
