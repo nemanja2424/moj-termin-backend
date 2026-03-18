@@ -936,13 +936,16 @@ def askAI_route():
         print(f"🔍 RAG retrieval za user_id={user_id}")
         print(f"   Pitanje: '{pitanje[:60]}...'")
         
-        # Pronađi relevantne dokumente
-        relevant_docs = rag.retrieve_documents(
+        # Koristi ADVANCED retrieval sa query expansion i reranking
+        rag_result = rag.retrieve_documents_advanced(
             user_id=user_id,
             pitanje=pitanje,
-            tip_korisnika='vlasnik',  # Za sada samo vlasnik
-            k=3
+            role='vlasnik',  # Za sada samo vlasnik
+            k=7
         )
+        
+        relevant_docs = rag_result['documents']
+        analytics = rag_result.get('analytics', {})
         
         if not relevant_docs:
             print("⚠️  Nema relevantnih dokumenata, koristi fallback")
@@ -953,8 +956,26 @@ def askAI_route():
             kontekst = json.dumps(data_firme, indent=2, ensure_ascii=False)
         else:
             # Formatiraj kontekst iz relevantnih dokumenata
-            kontekst = rag.format_context(relevant_docs)
-            print(f"✅ Pronađeno {len(relevant_docs)} relevantnih dokumenata")
+            rag_context = rag.format_context(relevant_docs)
+            
+            # Dodaj analytics ako dostupna (za vlasnika)
+            if analytics:
+                analytics_str = f"""
+=== ANALITIKA ===
+Ukupno pronađenih termina: {analytics.get('total_termins', 0)}
+Potvrđeni termini: {analytics.get('confirmed', 0)}
+Otkazani termini: {analytics.get('cancelled', 0)}
+Termini na čekanju: {analytics.get('pending', 0)}
+Prosječna relevantnost: {analytics.get('relevance_avg', 0):.2f}
+=== KRAJ ANALITIKE ===
+
+"""
+                kontekst = rag_context + analytics_str
+            else:
+                kontekst = rag_context
+            
+            print(f"✅ Advanced RAG pronašao {len(relevant_docs)} relevantnih dokumenata")
+            print(f"   📊 Expanded queries: {len(rag_result.get('expanded_queries', []))}")
         
     except Exception as e:
         print(f"❌ Greška pri RAG retrieval-u: {str(e)}")
