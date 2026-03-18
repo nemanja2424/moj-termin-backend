@@ -74,7 +74,7 @@ class RAGManager:
         embedding = self.model.encode(tekst)
         return embedding.tolist()
     
-    def retrieve_documents(self, user_id, pitanje, tip_korisnika='vlasnik', k=3):
+    def retrieve_documents(self, user_id, pitanje, tip_korisnika='vlasnik', k=6):
         """
         Pronađi relevantne dokumente iz embeddings tabele
         
