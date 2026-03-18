@@ -39,7 +39,7 @@ def log_rag_context(user_id, pitanje, relevant_docs, kontekst, model, response_t
         today = datetime.now().strftime('%Y-%m-%d')
         log_file = os.path.join(log_dir, f'{today}.json')
         
-        # Struktura log-a
+        # Struktura log-a - SA KOMPLETAN KONTEKSTOM
         log_entry = {
             'timestamp': datetime.now().isoformat(),
             'pitanje': pitanje,
@@ -49,15 +49,14 @@ def log_rag_context(user_id, pitanje, relevant_docs, kontekst, model, response_t
                     'id': doc.get('id'),
                     'tip_id': doc.get('tip_id'),
                     'distance': doc.get('distance'),
-                    'tekst_preview': doc.get('tekst', '')[:100] + '...' if doc.get('tekst') else ''
+                    'tekst': doc.get('tekst')  # KOMPLETAN TEKST DOKUMENTA
                 }
                 for doc in (relevant_docs or [])
             ],
-            'kontekst_length': len(kontekst) if kontekst else 0,
+            'kontekst': kontekst,  # KOMPLETAN KONTEKST ZA LLM
             'model': model,
             'response_time_seconds': response_time,
-            'odgovor_length': len(odgovor) if odgovor else 0,
-            'odgovor_preview': odgovor[:200] + '...' if odgovor else ''
+            'odgovor': odgovor  # KOMPLETAN ODGOVOR
         }
         
         # Učitaj postojeće log-e ako postoje
