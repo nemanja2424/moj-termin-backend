@@ -21,8 +21,9 @@ def get_model():
     """Vrati cache-irani model"""
     global _model
     if _model is None:
-        _model = SentenceTransformer('distiluse-base-multilingual-cased-v2')
-        logger.info("✅ Multilingual model učitan")
+        # Koristi model sa 384 dimenzije (kompatibilan sa existing embeddings-ima)
+        _model = SentenceTransformer('all-MiniLM-L6-v2')
+        logger.info("✅ Multilingual model učitan (384 dimenzije)")
     return _model
 
 def preload_model():
