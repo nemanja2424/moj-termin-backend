@@ -288,7 +288,7 @@ def get_user_profile(user_id):
                 # Pronalaženje preduzeca gde je korisnik zaposlen
                 preduzeca_query = text("""
                     SELECT DISTINCT p.id, p.ime, p.adresa, p.radno_vreme, p.cenovnik FROM preduzeca p
-                    WHERE p.id IN (SELECT DISTINCT preduzece_id FROM zakazivanja WHERE zaposleni_id = :user_id)
+                    WHERE p.id = (SELECT zaposlen_u FROM users WHERE id = :user_id)
                 """)
                 preduzeca_results = db.session.execute(preduzeca_query, {'user_id': user_id}).fetchall()
                 

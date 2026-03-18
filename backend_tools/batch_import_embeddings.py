@@ -110,6 +110,80 @@ def batch_import_users(limit=None):
         return 0
 
 
+def batch_import_zaposleni(limit=None):
+    """
+    Importuj ZAPOSLENI tipove embeddings-a (zaposleni u firmama)
+    
+    Args:
+        limit (int): Limitiraj broj zapisa (za test)
+    """
+    log_progress("🔄 Počinjem import ZAPOSLENI tipova...", "START")
+    
+    rag = get_rag_manager()
+    count = 0
+    
+    try:
+        # Pronađi sve zaposlene (users gdje zaposlen_u > 0)
+        query = text("""
+            SELECT id, username, email, brTel, zaposlen_u
+            FROM users
+            WHERE zaposlen_u > 0
+            ORDER BY id
+        """)
+        if limit:
+            query = text(query.text + f" LIMIT {limit}")
+        
+        zaposleni = db.session.execute(query).fetchall()
+        
+        log_progress(f"📊 Pronađeno {len(zaposleni)} zaposlenih za import")
+        
+        for zaposlenik_row in zaposleni:
+            zaposlenik_id, username, email, brTel, firma_id = zaposlenik_row
+            
+            # Formatiraj zaposlenik podatke
+            zaposlenik_data = {
+                'id': zaposlenik_id,
+                'username': username,
+                'email': email,
+                'brTel': brTel,
+                'zaposlen_u': firma_id
+            }
+            
+            tekst = rag.format_user_data_for_embedding(zaposlenik_data)
+            
+            # Generiši embedding
+            with embedding_limit:
+                embedding = rag.generate_embedding(tekst)
+            
+            # Unesi u embeddings tabelu
+            insert_query = text("""
+                INSERT INTO embeddings (user_id, firma_id, tip_id, tekst, embedding)
+                VALUES (:user_id, :firma_id, :tip_id, :tekst, :embedding)
+                ON CONFLICT DO NOTHING
+            """)
+            
+            db.session.execute(insert_query, {
+                'user_id': zaposlenik_id,
+                'firma_id': firma_id,  # firma_id = ID firme u kojoj je zaposlen
+                'tip_id': EmbeddingTypes.USER,
+                'tekst': tekst,
+                'embedding': str(embedding)
+            })
+            
+            count += 1
+            if count % 10 == 0:
+                log_progress(f"✅ Importovano {count} ZAPOSLENI zapisa")
+        
+        db.session.commit()
+        log_progress(f"✅ ZAPOSLENI import završen! Ukupno: {count} zapisa")
+        return count
+        
+    except Exception as e:
+        db.session.rollback()
+        log_progress(f"❌ Greška pri ZAPOSLENI import-u: {str(e)}", "ERROR")
+        return 0
+
+
 def batch_import_firme(limit=None):
     """
     Importuj FIRMA tipove embeddings-a
@@ -362,17 +436,19 @@ def main():
         start_time = datetime.now()
         
         # Importuj sve tipove
-        users_count = batch_import_users()  # Za sve korisnike
+        users_count = batch_import_users()  # Vlasnici
+        zaposleni_count = batch_import_zaposleni()  # Zaposleni
         firme_count = batch_import_firme()  # Za sve firme
         termini_count = batch_import_termini()  # Za sve termine
         vlasnici_count = batch_import_vlasnici()  # Za sve vlasniče
         
-        total_count = users_count + firme_count + termini_count + vlasnici_count
+        total_count = users_count + zaposleni_count + firme_count + termini_count + vlasnici_count
         elapsed = datetime.now() - start_time
         
         log_progress("=" * 60, "SUMMARY")
         log_progress(f"✅ IMPORT ZAVRŠEN!", "SUMMARY")
-        log_progress(f"   • USER: {users_count} zapisa", "SUMMARY")
+        log_progress(f"   • VLASNICI: {users_count} zapisa", "SUMMARY")
+        log_progress(f"   • ZAPOSLENI: {zaposleni_count} zapisa", "SUMMARY")
         log_progress(f"   • FIRMA: {firme_count} zapisa", "SUMMARY")
         log_progress(f"   • TERMIN: {termini_count} zapisa", "SUMMARY")
         log_progress(f"   • VLASNIK: {vlasnici_count} zapisa", "SUMMARY")
