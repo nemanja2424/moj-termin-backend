@@ -7,9 +7,25 @@ import json
 from sentence_transformers import SentenceTransformer
 from sqlalchemy import text
 import logging
+import threading
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Globalni model - učitava se samo jednom
+_model = None
+_model_lock = threading.Lock()
+
+def get_model():
+    """Lazy load model - učitaj samo prvi put"""
+    global _model
+    if _model is None:
+        with _model_lock:
+            if _model is None:
+                logger.info("🔄 Učitavam sentence-transformers model...")
+                _model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
+                logger.info("✅ Model učitan i cache-iran globalno")
+    return _model
 
 
 class EmbeddingTypes:
@@ -36,9 +52,9 @@ class RAGManager:
             db: SQLAlchemy database objekat
         """
         self.db = db
-        # Model za generisanje embeddings-a
-        self.model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
-        logger.info("✅ RAG Manager inicijalizovan")
+        # Koristi globalni cache-irani model
+        self.model = get_model()
+        logger.info("✅ RAG Manager inicijalizovan (koristi cache-irani model)")
     
     def generate_embedding(self, tekst):
         """
