@@ -958,6 +958,37 @@ def askAI_route():
             # Formatiraj kontekst iz relevantnih dokumenata
             rag_context = rag.format_context(relevant_docs)
             
+            # DODATNO - Za vlasnika, dodaj direktno sve njegove firme i zaposlene
+            vlasnik_metadata = ""
+            try:
+                # Sve firme vlasnika
+                firme_query = text("""
+                    SELECT id, ime, adresa FROM preduzeca WHERE vlasnik = :user_id
+                """)
+                firme = db.session.execute(firme_query, {'user_id': user_id}).fetchall()
+                
+                if firme:
+                    vlasnik_metadata += "\n=== TVOJE FIRME ===\n"
+                    for firma in firme:
+                        vlasnik_metadata += f"  • {firma[1]} (ID: {firma[0]}) - {firma[2]}\n"
+                
+                # Svi zaposleni vlasnika
+                zaposleni_query = text("""
+                    SELECT u.id, u.username, u.email, p.ime 
+                    FROM users u 
+                    JOIN preduzeca p ON u.zaposlen_u = p.id 
+                    WHERE p.vlasnik = :user_id
+                """)
+                zaposleni = db.session.execute(zaposleni_query, {'user_id': user_id}).fetchall()
+                
+                if zaposleni:
+                    vlasnik_metadata += "\n=== TVOJI ZAPOSLENI ===\n"
+                    for z in zaposleni:
+                        vlasnik_metadata += f"  • {z[1]} ({z[2]}) - radi u {z[3]}\n"
+                
+            except Exception as e:
+                print(f"⚠️  Greška pri prikupljanju metadata-a: {str(e)}")
+            
             # Dodaj analytics ako dostupna (za vlasnika)
             if analytics:
                 analytics_str = f"""
@@ -968,11 +999,10 @@ Otkazani termini: {analytics.get('cancelled', 0)}
 Termini na čekanju: {analytics.get('pending', 0)}
 Prosječna relevantnost: {analytics.get('relevance_avg', 0):.2f}
 === KRAJ ANALITIKE ===
-
 """
-                kontekst = rag_context + analytics_str
+                kontekst = rag_context + vlasnik_metadata + analytics_str
             else:
-                kontekst = rag_context
+                kontekst = rag_context + vlasnik_metadata
             
             print(f"✅ Advanced RAG pronašao {len(relevant_docs)} relevantnih dokumenata")
             print(f"   📊 Expanded queries: {len(rag_result.get('expanded_queries', []))}")
