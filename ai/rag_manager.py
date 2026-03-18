@@ -20,7 +20,7 @@ def get_model():
     """Vrati cache-irani model"""
     global _model
     if _model is None:
-        _model = SentenceTransformer('sentence-transformers/multilingual-MiniLM-L6-v2')
+        _model = SentenceTransformer('distiluse-base-multilingual-cased-v2')
         logger.info("✅ Multilingual model učitan")
     return _model
 
