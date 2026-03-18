@@ -6,6 +6,7 @@ Pronalazi relevantne dokumente iz baze i prosleđuje LLM-u kao kontekst
 import json
 from sentence_transformers import SentenceTransformer
 from sqlalchemy import text
+from pgvector.sqlalchemy import Vector
 import logging
 import threading
 
@@ -107,20 +108,23 @@ class RAGManager:
                 ]
             
             # 3. SQL pretraga sa embeddings vektorom
+            # Formatiraš embedding kao PostgreSQL pgvector format [a,b,c,...]
+            embedding_str = '[' + ','.join(str(x) for x in query_embedding) + ']'
+            
             query = text("""
-                SELECT id, tekst, tip_id, embedding <-> :embedding as distance
+                SELECT id, tekst, tip_id, embedding <-> :embedding::vector as distance
                 FROM embeddings
                 WHERE user_id = :user_id
                   AND tip_id = ANY(:types)
-                ORDER BY embedding <-> :embedding
+                ORDER BY embedding <-> :embedding::vector
                 LIMIT :k
             """)
             
             results = self.db.session.execute(query, {
-                'user_id': user_id,
-                'embedding': str(query_embedding),
+                'user_id': int(user_id),
+                'embedding': embedding_str,
                 'types': allowed_types,
-                'k': k
+                'k': int(k)
             }).fetchall()
             
             logger.info(f"✅ Pronađeno {len(results)} relevantnih dokumenata")
