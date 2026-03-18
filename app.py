@@ -891,8 +891,11 @@ def otkaziTermin():
 @jwt_required()
 def askAI_route():
     """
-    Ruta koja poziva askAI funkciju nakon provere validnosti tokena i limitacija.
+    Ruta koja koristi RAG sistem za pronalaženje relevantnih dokumenata
+    pa zatim poziva askAI funkciju sa kontekstom.
     """
+    from ai.rag_manager import RAGManager
+    
     data = request.json
 
     # Validacija ulaznih podataka
@@ -921,28 +924,53 @@ def askAI_route():
     print(f"✅ Odabrani model: {selected_model}")
     # ===== KRAJ PROVERE LIMITACIJA =====
 
-    # Dohvatanje podataka firme iz baze
+    # ===== RAG RETRIEVAL - Pronađi relevantne dokumente =====
     try:
-        data_firme = get_ai_data_for_user(user_id, db)
+        rag = RAGManager(db)
         
-        if not data_firme:
-            return jsonify({'error': 'Korisnik nije pronađen'}), 404
-
+        print(f"🔍 RAG retrieval za user_id={user_id}")
+        print(f"   Pitanje: '{pitanje[:60]}...'")
+        
+        # Pronađi relevantne dokumente
+        relevant_docs = rag.retrieve_documents(
+            user_id=user_id,
+            pitanje=pitanje,
+            tip_korisnika='vlasnik',  # Za sada samo vlasnik
+            k=3
+        )
+        
+        if not relevant_docs:
+            print("⚠️  Nema relevantnih dokumenata, koristi fallback")
+            # Fallback - koristi stari sistem ako nema embeddings-a
+            data_firme = get_ai_data_for_user(user_id, db)
+            if not data_firme:
+                return jsonify({'error': 'Korisnik nije pronađen'}), 404
+            kontekst = json.dumps(data_firme, indent=2, ensure_ascii=False)
+        else:
+            # Formatiraj kontekst iz relevantnih dokumenata
+            kontekst = rag.format_context(relevant_docs)
+            print(f"✅ Pronađeno {len(relevant_docs)} relevantnih dokumenata")
+        
     except Exception as e:
-        return jsonify({'error': f'Greška pri dohvatanju podataka: {str(e)}'}), 500
+        print(f"❌ Greška pri RAG retrieval-u: {str(e)}")
+        return jsonify({'error': f'Greška pri pronalaženju podataka: {str(e)}'}), 500
+    # ===== KRAJ RAG RETRIEVAL-A =====
 
-    # Pozivanje askAI funkcije
+    # Pozivanje askAI funkcije sa kontekstom
     try:
-        odgovor = askAI(data_firme, poruke, pitanje, selected_model)
+        # Novi format - kontekst umelo data_firme
+        odgovor = askAI(kontekst, poruke, pitanje, selected_model)
         
         return jsonify({
             'status': 'success',
             'odgovor': odgovor,
             'model': selected_model,
-            'poruka': 'Odgovor uspešno generisan'
+            'poruka': 'Odgovor uspešno generisan',
+            'rag_used': relevant_docs is not None and len(relevant_docs) > 0
         }), 200
 
     except Exception as e:
+        print(f"❌ Greška pri generisanju odgovora: {str(e)}")
         return jsonify({
             'error': 'Greška pri generisanju odgovora',
             'details': str(e)

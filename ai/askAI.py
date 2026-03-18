@@ -99,11 +99,20 @@ def update_token_usage(prompt_tokens, completion_tokens, model="llama4"):
     except Exception as e:
         print(f"❌ Greška pri loganju tokena: {e}")
 
-def askAI(data_firme, poruke, pitanje, model="llama4"):
+def askAI(kontekst, poruke, pitanje, model="llama4"):
+    """
+    AI asistent sa RAG kontekstom
+    
+    Args:
+        kontekst (str): Relevantni podaci iz RAG sistema (tekst, ne JSON)
+        poruke (list): Prethodne poruke u razgovoru
+        pitanje (str): Trenutno pitanje korisnika
+        model (str): Koji model koristiti ('llama3' ili 'llama4')
+    """
     today = datetime.today()
     
-    # Formatiraj JSON sa podacima firme
-    formatted_data = json.dumps(data_firme, indent=2, ensure_ascii=False)
+    # Kontekst je već tekst od RAG sistema, koristi ga direktno
+    formatted_data = kontekst
     
     # SYSTEM PROMPT za llama4 - kompletan sa svih mogućnostima
     system_content = """
