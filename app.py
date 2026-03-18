@@ -11,7 +11,6 @@ import requests
 from sqlalchemy import text
 import json
 import secrets
-import time
 from mailManager import send_confirmation_email, send_email_to_workers, html_head
 from ai.askAI import askAI
 from ai.chat_manager import (
@@ -23,59 +22,6 @@ from routes.aiInfo import get_ai_data_for_user
 
 # Učitavanje .env fajla
 load_dotenv()
-
-def log_rag_context(user_id, pitanje, relevant_docs, kontekst, model, response_time, odgovor):
-    """
-    Loguj RAG kontekst i odgovor u JSON fajl za privremeno testiranje
-    
-    Format:
-    ai/rag_logs/USER_ID/DATUM.json
-    """
-    try:
-        log_dir = os.path.join(os.path.dirname(__file__), 'ai', 'rag_logs', str(user_id))
-        os.makedirs(log_dir, exist_ok=True)
-        
-        # Fajl po danu
-        today = datetime.now().strftime('%Y-%m-%d')
-        log_file = os.path.join(log_dir, f'{today}.json')
-        
-        # Struktura log-a - SA KOMPLETAN KONTEKSTOM
-        log_entry = {
-            'timestamp': datetime.now().isoformat(),
-            'pitanje': pitanje,
-            'retrieved_docs_count': len(relevant_docs) if relevant_docs else 0,
-            'retrieved_docs': [
-                {
-                    'id': doc.get('id'),
-                    'tip_id': doc.get('tip_id'),
-                    'distance': doc.get('distance'),
-                    'tekst': doc.get('tekst')  # KOMPLETAN TEKST DOKUMENTA
-                }
-                for doc in (relevant_docs or [])
-            ],
-            'kontekst': kontekst,  # KOMPLETAN KONTEKST ZA LLM
-            'model': model,
-            'response_time_seconds': response_time,
-            'odgovor': odgovor  # KOMPLETAN ODGOVOR
-        }
-        
-        # Učitaj postojeće log-e ako postoje
-        logs = []
-        if os.path.exists(log_file):
-            with open(log_file, 'r', encoding='utf-8') as f:
-                logs = json.load(f)
-        
-        # Dodaj novi log
-        logs.append(log_entry)
-        
-        # Sačuvaj
-        with open(log_file, 'w', encoding='utf-8') as f:
-            json.dump(logs, f, indent=2, ensure_ascii=False)
-        
-        print(f"✅ RAG context logovan: {log_file}")
-        
-    except Exception as e:
-        print(f"⚠️  Greška pri loganju RAG konteksta: {e}")
 
 def env_verify():
     required_vars = ['SMTP_SERVER', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASSWORD', 'DATABASE', 'PORT', 'SQL_USER', 'SQL_PWD', 'VPS_IP']
@@ -1017,33 +963,15 @@ def askAI_route():
 
     # Pozivanje askAI funkcije sa kontekstom
     try:
-        # Merenje vremena
-        start_time = time.time()
-        
         # Novi format - kontekst umelo data_firme
         odgovor = askAI(kontekst, poruke, pitanje, selected_model)
-        
-        # Proračunaj vreme
-        response_time = time.time() - start_time
-        
-        # Loguj RAG kontekst (privremeno, za testiranje)
-        log_rag_context(
-            user_id=user_id,
-            pitanje=pitanje,
-            relevant_docs=relevant_docs if relevant_docs else [],
-            kontekst=kontekst,
-            model=selected_model,
-            response_time=response_time,
-            odgovor=odgovor
-        )
         
         return jsonify({
             'status': 'success',
             'odgovor': odgovor,
             'model': selected_model,
             'poruka': 'Odgovor uspešno generisan',
-            'rag_used': relevant_docs is not None and len(relevant_docs) > 0,
-            'response_time': response_time
+            'rag_used': relevant_docs is not None and len(relevant_docs) > 0
         }), 200
 
     except Exception as e:
