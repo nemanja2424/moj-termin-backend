@@ -1,11 +1,16 @@
 from dotenv import load_dotenv
-from together import Together
+import os
 from datetime import datetime
 import json
-import os
+
+# Together 2.4.0 API
+from together import Together
 
 load_dotenv()
-client = Together()
+
+# Inicijalizuj Together klijent sa API ključem iz .env
+api_key = os.getenv("TOGETHER_API_KEY")
+client = Together(api_key=api_key)
 
 
 # Mapping od skraćenih imena na pune model zvanične nazive
@@ -245,26 +250,31 @@ def askAI(kontekst, poruke, pitanje, model="llama4"):
     print(f"📊 Broj prethodnih poruka: {len(poruke)}")
     print()
 
-    # Pozovi LLM - Together API kompatibilnost
-    print(f"📤 Slanje zahteva Together AI...")
+    # Pozovi LLM - Together 2.4.0 API
+    print(f"📤 Slanje zahteva Together AI ({full_model_name})...")
     
-    response = client.chat.completions.create(
-        model=full_model_name,
-        messages=messages,
-        temperature=0.2,
-        max_tokens=1024
-    )
-    
-    # Izvuci odgovor
-    answer = response.choices[0].message.content
-    
-    # Izvuci informacije o potrošnji tokena
-    if hasattr(response, 'usage') and response.usage:
-        try:
-            prompt_tokens = response.usage.prompt_tokens
-            completion_tokens = response.usage.completion_tokens
-            update_token_usage(prompt_tokens, completion_tokens, model)
-        except Exception as e:
-            print(f"⚠️  Greška pri ekstraktovanju tokena: {e}")
-    
-    return answer
+    try:
+        response = client.chat.completions.create(
+            model=full_model_name,
+            messages=messages,
+            temperature=0.2,
+            max_tokens=1024
+        )
+        
+        # Izvuci odgovor
+        answer = response.choices[0].message.content
+        
+        # Izvuci informacije o potrošnji tokena ako postoje
+        if hasattr(response, 'usage') and response.usage:
+            try:
+                prompt_tokens = response.usage.prompt_tokens
+                completion_tokens = response.usage.completion_tokens
+                update_token_usage(prompt_tokens, completion_tokens, model)
+            except Exception as e:
+                print(f"⚠️  Greška pri ekstraktovanju tokena: {e}")
+        
+        return answer
+        
+    except Exception as e:
+        print(f"❌ Together API greška: {str(e)}")
+        raise
