@@ -245,24 +245,18 @@ def askAI(kontekst, poruke, pitanje, model="llama4"):
     print(f"📊 Broj prethodnih poruka: {len(poruke)}")
     print()
 
-    # Pozovi LLM - Together API compatibility
-    try:
-        # Pokušaj sa OpenAI-style API (novija verzija Together)
-        response = client.chat.completions.create(
-            model=full_model_name,
-            messages=messages,
-            temperature=0.2,
-        )
-    except AttributeError:
-        # Fallback na direktnu Together API verziju
-        response = client.complete(
-            model=full_model_name,
-            prompt=f"System: {messages[0]['content']}\n\nContext: {messages[1]['content']}\n\nUser: {messages[-1]['content']}",
-            max_tokens=1000,
-            temperature=0.2,
-        )
-        # Vrati samo tekst odgovora
-        return response[0].get('output', response[0].get('text', ''))
+    # Pozovi LLM - Together API kompatibilnost
+    print(f"📤 Slanje zahteva Together AI...")
+    
+    response = client.chat.completions.create(
+        model=full_model_name,
+        messages=messages,
+        temperature=0.2,
+        max_tokens=1024
+    )
+    
+    # Izvuci odgovor
+    answer = response.choices[0].message.content
     
     # Izvuci informacije o potrošnji tokena
     if hasattr(response, 'usage') and response.usage:
@@ -273,4 +267,4 @@ def askAI(kontekst, poruke, pitanje, model="llama4"):
         except Exception as e:
             print(f"⚠️  Greška pri ekstraktovanju tokena: {e}")
     
-    return response.choices[0].message.content
+    return answer
