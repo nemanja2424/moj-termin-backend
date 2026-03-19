@@ -215,7 +215,7 @@ class RAGManager:
                 # Ispis sa tekstom
                 tekst_preview = tekst[:120].replace('\n', ' ')  # Prvih 120 karaktera, zamijeni newlines
                 logger.info(f"   📄 Doc {doc_id} (tip {tip_id}): relevance={distance:.3f}")
-                logger.info(f"      >>> {tekst_preview}{'...' if len(tekst) > 120 else ''}")
+                logger.info(f"      >>> {tekst_preview}")
             
             return documents
             
@@ -237,19 +237,28 @@ class RAGManager:
         if not documents:
             return "Nema dostupnih podataka."
         
-        # Mapiranje tipova na imena
-        type_names = {
-            EmbeddingTypes.VLASNIK: "👑 VLASNIK",
-            EmbeddingTypes.ZAPOSLEN: "👤 ZAPOSLENIK",
-            EmbeddingTypes.KLIJENT: "📅 KLIJENT"
-        }
-        
         kontekst = "=== RELEVANTNI PODACI ===\n\n"
         
         for i, doc in enumerate(documents, 1):
-            tip_name = type_names.get(doc['tip_id'], "OSTALO")
-            kontekst += f"{i}. {tip_name}\n"
-            kontekst += f"{doc['tekst']}\n"
+            tekst = doc['tekst']
+            tip_id = doc['tip_id']
+            
+            # Detektuj vrstu dokumenta od teksta
+            if "Zakazivanje" in tekst:
+                label = "📅 ZAKAZIVANJE/TERMIN"
+            elif "Vlasnik:" in tekst:
+                label = "👑 VLASNIK"
+            elif "Firma:" in tekst:
+                label = "🏢 FIRMA"
+            elif "Zaposlenik:" in tekst:
+                label = "👤 ZAPOSLENIK"
+            elif "Preduzeće:" in tekst:
+                label = "🏢 PREDUZEĆE"
+            else:
+                label = f"📋 TIP {tip_id}"
+            
+            kontekst += f"{i}. {label}\n"
+            kontekst += f"{tekst}\n"
             kontekst += f"(Relevantnost: {doc['distance']:.2f})\n\n"
         
         kontekst += "=== KRAJ RELEVANTNIH PODATAKA ===\n"
