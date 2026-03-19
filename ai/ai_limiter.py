@@ -229,7 +229,7 @@ def check_and_select_model(user_type, limits, usage, llm_switch):
     }
 
 
-def check_and_increment_ai_usage(user_id, auth_token, db):
+def check_and_increment_ai_usage(user_id, db):
     """
     Glavna funkcija koja:
     1. Dohvata ai_info iz baze (sadrži "id" vlasnika i "ai_info" strukturu)
@@ -249,7 +249,7 @@ def check_and_increment_ai_usage(user_id, auth_token, db):
     """
     
     # Dohvati ai_info iz baze (sadrži "id" i "ai_info")
-    ai_info_data = get_ai_info(user_id, auth_token, db)
+    ai_info_data = get_ai_info(user_id, db)
     if not ai_info_data:
         return {
             "allowed": False,

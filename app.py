@@ -904,20 +904,17 @@ def askAI_route():
     data = request.json
 
     # Validacija ulaznih podataka
-    auth_token = data.get('authToken')
     poruke = data.get('poruke', [])
     pitanje = data.get('pitanje')
     user_id = data.get('userId')
 
-    if not auth_token:
-        return jsonify({'error': 'Nedostaje authToken'}), 400
     if not pitanje:
         return jsonify({'error': 'Nedostaje pitanje'}), 400
     if not user_id:
         return jsonify({'error': 'Nedostaje userId'}), 400
 
     # ===== PROVERA AI LIMITACIJA =====
-    limit_result = check_and_increment_ai_usage(user_id, auth_token, db)
+    limit_result = check_and_increment_ai_usage(user_id, db)
     
     if not limit_result['allowed']:
         return jsonify({
@@ -1061,10 +1058,9 @@ def create_chat():
     try:
         data = request.json
         user_id = data.get('userId')
-        auth_token = data.get('authToken')
         title = data.get('title', 'Nova konverzacija')
 
-        if not user_id or not auth_token:
+        if not user_id:
             return jsonify({'error': 'Nedostaju userId i authToken'}), 400
 
         result = create_new_chat(user_id, title)
@@ -1084,9 +1080,8 @@ def get_chat(chat_id):
     """
     try:
         user_id = request.args.get('userId')
-        auth_token = request.args.get('authToken')
 
-        if not user_id or not auth_token:
+        if not user_id:
             return jsonify({'error': 'Nedostaju userId i authToken'}), 400
 
         result = load_chat(user_id, chat_id)
@@ -1109,9 +1104,8 @@ def list_chats():
     """
     try:
         user_id = request.args.get('userId')
-        auth_token = request.args.get('authToken')
 
-        if not user_id or not auth_token:
+        if not user_id:
             return jsonify({'error': 'Nedostaju userId i authToken'}), 400
 
         chats = get_user_chats(user_id)
@@ -1131,11 +1125,10 @@ def add_message_to_chat(chat_id):
     try:
         data = request.json
         user_id = data.get('userId')
-        auth_token = data.get('authToken')
         message_text = data.get('message')
         sender = data.get('sender', 'user')
 
-        if not user_id or not auth_token or not message_text:
+        if not user_id or not message_text:
             return jsonify({'error': 'Nedostaju obavezni podaci'}), 400
 
         result = save_chat_message(user_id, chat_id, {
