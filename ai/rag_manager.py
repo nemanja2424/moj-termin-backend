@@ -275,7 +275,7 @@ class RAGManager:
         CHUNK OPTIMIZATION: Kompaktan, fokusiran tekst
         
         Args:
-            user_data (dict): {username, email, brTel, paket, ime_preduzeca}
+            user_data (dict): {username, email, brTel, ime_preduzeca, istek_pretplate, opis, paket_limits}
             
         Returns:
             str: Formatiran tekst (kompaktan)
@@ -284,23 +284,27 @@ class RAGManager:
         ime_preduzeca = user_data.get('ime_preduzeca', 'N/A')
         email = user_data.get('email', 'N/A')
         brTel = user_data.get('brTel', 'N/A')
-        paket = user_data.get('paket', 'N/A')
+        istek_pretplate = user_data.get('istek_pretplate', 'N/A')
+        opis = user_data.get('opis', 'N/A')
+        paket_limits = user_data.get('paket_limits', 'N/A')
         
-        # Kompaktan format - fokusirano na ključne informacije
-        tekst = f"Vlasnik: {username} | Preduzeće: {ime_preduzeca} | Email: {email} | Telefon: {brTel} | Paket: {paket}"
+        # Kompaktan format - sve relevantne informacije
+        tekst = f"Vlasnik: {username} | Preduzeće: {ime_preduzeca} | Email: {email} | Telefon: {brTel} | Istek pretplate: {istek_pretplate} | Opis: {opis} | Limiti: {paket_limits}"
         return tekst.strip()
     
     # ============================================================
     # ZAJEDNIČKE FUNKCIJE - koriste se za sve tipove
     # ============================================================
     
-    def format_firma_for_embedding(self, firma_data):
+    def format_firma_for_embedding(self, firma_data, vlasnik_username=None, tip_id=None):
         """
         Formatiraj podatke FIRME za embedding (koristi se za TIP 1, 2, 3)
         CHUNK OPTIMIZATION: Kompaktan, fokusiran tekst
         
         Args:
-            firma_data (dict): {ime, adresa, overlapLimit}
+            firma_data (dict): {ime, adresa, overlapLimit, radno_vreme, cenovnik}
+            vlasnik_username (str): Username vlasnika
+            tip_id (int): Tip embedding-a (1, 2, 3) - akko je TIP 3, ne uključuj vlasnika
             
         Returns:
             str: Formatiran tekst (kompaktan)
@@ -308,18 +312,24 @@ class RAGManager:
         ime = firma_data.get('ime', 'N/A')
         adresa = firma_data.get('adresa', 'N/A')
         overlapLimit = firma_data.get('overlapLimit', 'N/A')
+        radno_vreme = firma_data.get('radno_vreme', 'N/A')
+        cenovnik = firma_data.get('cenovnik', 'N/A')
         
-        # Kompaktan format - samo ključne informacije
-        tekst = f"Firma: {ime} | Adresa: {adresa} | Kapacitet: {overlapLimit}"
+        # Kompaktan format - sve relevantne informacije
+        if tip_id == 3:  # TIP 3 - KLIJENT
+            tekst = f"Firma: {ime} | Adresa: {adresa} | Kapacitet: {overlapLimit} | Radno vreme: {radno_vreme} | Cenovnik: {cenovnik}"
+        else:  # TIP 1 i 2 - sa vlasnikom
+            vlasnik = vlasnik_username or 'N/A'
+            tekst = f"Firma: {ime} | Adresa: {adresa} | Kapacitet: {overlapLimit} | Radno vreme: {radno_vreme} | Cenovnik: {cenovnik} | Vlasnik: {vlasnik}"
         return tekst.strip()
     
     def format_termin_tip1_for_embedding(self, termin_data, firma_ime=None):
         """
-        Formatiraj podatke TERMINA za embedding - VLASNIK/ZAPOSLEN
+        Formatiraj podatke TERMINA za embedding - VLASNIK/ZAPOSLEN (TIP 1 i 2)
         CHUNK OPTIMIZATION: Kompaktan, fokusiran tekst
         
         Args:
-            termin_data (dict): {ime, usluga, datum_rezervacije, vreme_rezervacije, potvrdio}
+            termin_data (dict): {ime, usluga, datum_rezervacije, vreme_rezervacije, email, telefon, opis, potvrdio, otkazano, token, potvrdio_ime}
             firma_ime (str): Naziv firme (iz preduzeca tabele)
             
         Returns:
@@ -333,41 +343,45 @@ class RAGManager:
             except:
                 pass
         
-        status = "Potvrđen" if termin_data.get('potvrdio') else "Čeka potvrdu"
         klijent = termin_data.get('ime', 'N/A')
+        email = termin_data.get('email', 'N/A')
+        telefon = termin_data.get('telefon', 'N/A')
+        opis = termin_data.get('opis', 'N/A')
         datum = termin_data.get('datum_rezervacije', 'N/A')
         vreme = termin_data.get('vreme_rezervacije', 'N/A')
+        token = termin_data.get('token', 'N/A')
         
-        # Kompaktan format - usluga, firma, datum, vrijeme, klijent
-        tekst = f"Termin: {usluga_text} | Firma: {firma_ime or 'N/A'} | {datum} {vreme} | Klijent: {klijent} | Status: {status}"
+        # Odredi status
+        if termin_data.get('otkazano'):
+            status = "Otkazano"
+        elif termin_data.get('potvrdio'):
+            potvrdio_ime = termin_data.get('potvrdio_ime', 'N/A')
+            status = f"Potvrđen: {potvrdio_ime}"
+        else:
+            status = "Čeka potvrdu"
+        
+        # Format sa svim poljima
+        tekst = f"Usluga: {usluga_text} | Firma: {firma_ime or 'N/A'} | {datum} {vreme} | Klijent: {klijent} | Email klijenta: {email} | Telefon klijenta: {telefon} | Opis: {opis} | Status: {status} | Token: {token}"
         return tekst.strip()
     
     def format_termin_tip3_for_embedding(self, termin_data, firma_ime=None):
         """
-        Formatiraj podatke TERMINA za embedding - KLIJENT
+        Formatiraj podatke TERMINA za embedding - KLIJENT (TIP 3)
         CHUNK OPTIMIZATION: Kompaktan, fokusiran tekst
-        Koristi se za TIP 3 (Red x-y) - samo USLUGA, DATUM, VREME, IME_FIRME
+        Koristi se za TIP 3 (Red N+1-M) - samo FIRMA, DATUM, VREME
         
         Args:
-            termin_data (dict): {usluga, datum_rezervacije, vreme_rezervacije}
+            termin_data (dict): {datum_rezervacije, vreme_rezervacije}
             firma_ime (str): Naziv firme (iz preduzeca tabele)
             
         Returns:
             str: Formatiran tekst (kompaktan)
         """
-        usluga_text = termin_data.get('usluga', 'N/A')
-        if isinstance(usluga_text, str):
-            try:
-                usluga_dict = json.loads(usluga_text)
-                usluga_text = usluga_dict.get('naziv', 'N/A')
-            except:
-                pass
-        
         datum = termin_data.get('datum_rezervacije', 'N/A')
         vreme = termin_data.get('vreme_rezervacije', 'N/A')
         
-        # Kompaktan format
-        tekst = f"Termin: {usluga_text} - Firma: {firma_ime or 'N/A'} | {datum} {vreme}"
+        # Kompaktan format - samo firma, datum, vreme
+        tekst = f"Firma: {firma_ime or 'N/A'} | {datum} {vreme}"
         return tekst.strip()
     
     # ============================================================
@@ -400,7 +414,7 @@ class RAGManager:
     
     def format_vlasnik_info_tip3_for_embedding(self, user_data):
         """
-        Formatiraj datos VLASNIKA za embedding - KLIJENT (TIP 3 - Red 1)
+        Formatiraj podatke VLASNIKA za embedding - KLIJENT (TIP 3 - Red 1)
         CHUNK OPTIMIZATION: Kompaktan, fokusiran tekst
         Samo: ime_preduzeca, opis
         
@@ -412,7 +426,7 @@ class RAGManager:
         """
         ime = user_data.get('ime_preduzeca', 'N/A')
         opis = user_data.get('opis', 'N/A')
-        # Kompaktan format
+        # Kompaktan format - naziv i opis
         tekst = f"Preduzeće: {ime} | {opis}"
         return tekst.strip()
 

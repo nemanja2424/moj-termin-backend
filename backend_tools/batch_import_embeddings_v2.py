@@ -124,7 +124,7 @@ def batch_import_vlasnici_tip1(limit=None):
                     'overlapLimit': overlapLimit
                 }
                 
-                tekst = rag.format_firma_for_embedding(firma_data)
+                tekst = rag.format_firma_for_embedding(firma_data, username, EmbeddingTypes.VLASNIK)
                 
                 with embedding_limit:
                     embedding = rag.generate_embedding(tekst)
@@ -284,6 +284,20 @@ def batch_import_zaposleni_tip2(limit=None):
             if firma_full:
                 ime, adresa, radno_vreme, cenovnik, overlapLimit = firma_full
                 
+                # Pronađi vlasnika firme i njegov username
+                vlasnik_info = db.session.execute(
+                    text("SELECT vlasnik FROM preduzeca WHERE id = :id"),
+                    {'id': firma_id}
+                ).fetchone()
+                
+                vlasnik_username = 'N/A'
+                if vlasnik_info:
+                    vlasnik_user = db.session.execute(
+                        text("SELECT username FROM users WHERE id = :id"),
+                        {'id': vlasnik_info[0]}
+                    ).fetchone()
+                    vlasnik_username = vlasnik_user[0] if vlasnik_user else 'N/A'
+                
                 firma_data = {
                     'ime': ime,
                     'adresa': adresa,
@@ -292,10 +306,7 @@ def batch_import_zaposleni_tip2(limit=None):
                     'overlapLimit': overlapLimit
                 }
                 
-                tekst = rag.format_firma_for_embedding(firma_data)
-                
-                with embedding_limit:
-                    embedding = rag.generate_embedding(tekst)
+                tekst = rag.format_firma_for_embedding(firma_data, vlasnik_username, EmbeddingTypes.ZAPOSLEN)
                 
                 db.session.execute(insert_query, {
                     'user_id': zaposlenik_id,
@@ -460,7 +471,8 @@ def batch_import_klijenti_tip3(limit=None):
                     'overlapLimit': overlapLimit
                 }
                 
-                tekst = rag.format_firma_for_embedding(firma_data)
+                # Za TIP 3 (KLIJENT) ne trebam vlasnik username
+                tekst = rag.format_firma_for_embedding(firma_data, None, EmbeddingTypes.KLIJENT)
                 
                 with embedding_limit:
                     embedding = rag.generate_embedding(tekst)
