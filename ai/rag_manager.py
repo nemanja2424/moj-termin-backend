@@ -34,11 +34,12 @@ def preload_model():
 
 
 class EmbeddingTypes:
-    """Enum za tipove embedding-a"""
-    USER = 1       # User info (username, email, itd)
-    FIRMA = 2      # Firma - kombinovano (ime, adresa, radno_vreme, cenovnik)
-    TERMIN = 3     # Zakazani termini
-    VLASNIK = 4    # Vlasnik info (limits, paket, itd)
+    """
+    Enum za tipove embedding-a (označava nivo pristupa - ko može vidjeti)
+    """
+    VLASNIK = 1    # Vlasnik - vidi sve podatke
+    ZAPOSLEN = 2   # Zaposlenik - vidi samo svoju firmu i termine
+    KLIJENT = 3    # Klijent - vidi samo firme i slobodne termine (bez detalja)
 
 
 class RAGManager:
@@ -74,65 +75,125 @@ class RAGManager:
         embedding = self.model.encode(tekst)
         return embedding.tolist()
     
-    def retrieve_documents(self, user_id, pitanje, tip_korisnika='vlasnik', k=6):
+    def retrieve_documents(self, user_id, pitanje, vlasnik_id_for_klijent=None, k=6):
         """
-        Pronađi relevantne dokumente iz embeddings tabele
+        Pronađi relevantne dokumente iz embeddings tabele - NOVA LOGIKA
+        
+        Automatski detektuje tip korisnika iz baze:
+        - Ako zaposlen_u = 0 → VLASNIK (tip_id = 1)
+        - Ako zaposlen_u > 0 → ZAPOSLENIK (tip_id = 2)
+        - Ako vlasnik_id_for_klijent → KLIJENT (tip_id = 3)
         
         Args:
             user_id (int): ID korisnika koji pita
             pitanje (str): Pitanje korisnika
-            tip_korisnika (str): 'vlasnik' ili 'zakazivac'
-            k (int): Broj rezultata (default 3)
+            vlasnik_id_for_klijent (int): ID vlasnika (SAMO za klijenta)
+            k (int): Broj rezultata (default 6)
             
         Returns:
-            list: Lista relevantnih dokumenata (samo tekst)
+            list: Lista relevantnih dokumenata
         """
         try:
             # 1. Generiši embedding za pitanje
             logger.info(f"🔍 Generisem embedding za pitanje: '{pitanje[:50]}...'")
             query_embedding = self.generate_embedding(pitanje)
+            embedding_str = f'[{",".join(str(x) for x in query_embedding)}]'
             
-            # 2. Odredì koje tipove može vidjeti korisnik
-            if tip_korisnika == 'vlasnik':
-                # Vlasnik vidi SVE tipove
-                allowed_types = [
-                    EmbeddingTypes.USER,
-                    EmbeddingTypes.FIRMA,
-                    EmbeddingTypes.TERMIN,
-                    EmbeddingTypes.VLASNIK
-                ]
-            else:  # zakazivac
-                # Zakazivač vidi samo termin i firma info
-                allowed_types = [
-                    EmbeddingTypes.FIRMA,
-                    EmbeddingTypes.TERMIN
-                ]
+            # 2. Odredi tip korisnika iz baze
+            if vlasnik_id_for_klijent:
+                # KLIJENT - korisnik koji zakazuje kod vlasnika
+                tip_korisnika = 'klijent'
+                user_id_for_query = vlasnik_id_for_klijent
+                tip_id = EmbeddingTypes.KLIJENT
+                logger.info(f"👤 TIP: KLIJENT - vlasnik_id={vlasnik_id_for_klijent}")
+            else:
+                # Proveri iz users tabele da li je vlasnik ili zaposlenik
+                user_query = text("SELECT zaposlen_u FROM users WHERE id = :id")
+                user_result = self.db.session.execute(user_query, {'id': int(user_id)}).fetchone()
+                
+                if not user_result:
+                    logger.error(f"❌ Korisnik sa ID {user_id} nije pronađen!")
+                    return []
+                
+                zaposlen_u = user_result[0]
+                
+                if zaposlen_u == 0:
+                    # VLASNIK
+                    tip_korisnika = 'vlasnik'
+                    user_id_for_query = user_id
+                    tip_id = EmbeddingTypes.VLASNIK
+                    logger.info(f"👑 TIP: VLASNIK - user_id={user_id}")
+                else:
+                    # ZAPOSLENIK
+                    tip_korisnika = 'zaposlen'
+                    user_id_for_query = user_id
+                    firma_id = zaposlen_u
+                    tip_id = EmbeddingTypes.ZAPOSLEN
+                    logger.info(f"👤 TIP: ZAPOSLENIK - user_id={user_id}, firma_id={firma_id}")
             
-            # 3. SQL pretraga sa surowym psycopg2 connection
-            # SQLAlchemy text() escapeuje placeholders što se ne slaže sa pgvector operatorima
-            embedding_str = '[' + ','.join(str(x) for x in query_embedding) + ']'
-            
-            # Koristi raw connection sa psycopg2
+            # 3. SQL pretraga sa psycopg2 raw connection
             conn = self.db.engine.raw_connection()
             try:
                 cursor = conn.cursor()
                 
-                query_sql = """
-                    SELECT id, tekst, tip_id, embedding <-> %s::vector as distance
-                    FROM embeddings
-                    WHERE user_id = %s
-                      AND tip_id = ANY(%s)
-                    ORDER BY embedding <-> %s::vector
-                    LIMIT %s
-                """
-                
-                cursor.execute(query_sql, (
-                    embedding_str,
-                    int(user_id),
-                    allowed_types,
-                    embedding_str,
-                    int(k)
-                ))
+                if tip_korisnika == 'vlasnik':
+                    # VLASNIK: Samo tip 1 (VLASNIK)
+                    query_sql = """
+                        SELECT e.id, e.tekst, e.tip_id, e.embedding <-> %s::vector as distance
+                        FROM embeddings e
+                        WHERE e.user_id = %s
+                          AND e.tip_id = %s
+                        ORDER BY e.embedding <-> %s::vector
+                        LIMIT %s
+                    """
+                    cursor.execute(query_sql, (
+                        embedding_str,
+                        int(user_id_for_query),
+                        int(EmbeddingTypes.VLASNIK),
+                        embedding_str,
+                        int(k)
+                    ))
+                    logger.info(f"   SQL: Pretraživam dokumenta za VLASNIKA")
+                    
+                elif tip_korisnika == 'zaposlen':
+                    # ZAPOSLENIK: Samo tip 2 (ZAPOSLEN) sa filtriranjem po firma_id
+                    query_sql = """
+                        SELECT e.id, e.tekst, e.tip_id, e.embedding <-> %s::vector as distance
+                        FROM embeddings e
+                        WHERE e.user_id = %s
+                          AND e.tip_id = %s
+                          AND e.firma_id = %s
+                        ORDER BY e.embedding <-> %s::vector
+                        LIMIT %s
+                    """
+                    cursor.execute(query_sql, (
+                        embedding_str,
+                        int(user_id_for_query),
+                        int(EmbeddingTypes.ZAPOSLEN),
+                        int(firma_id),
+                        embedding_str,
+                        int(k)
+                    ))
+                    logger.info(f"   SQL: Pretraživam dokumente za ZAPOSLENIKA sa firma_id={firma_id}")
+                    
+                elif tip_korisnika == 'klijent':
+                    # KLIJENT: Samo tip 3 (KLIJENT)
+                    query_sql = """
+                        SELECT e.id, e.tekst, e.tip_id, e.embedding <-> %s::vector as distance
+                        FROM embeddings e
+                        WHERE e.user_id = %s
+                          AND e.tip_id = %s
+                        ORDER BY e.embedding <-> %s::vector
+                        LIMIT %s
+                    """
+                    cursor.execute(query_sql, (
+                        embedding_str,
+                        int(user_id_for_query),
+                        int(EmbeddingTypes.KLIJENT),
+                        embedding_str,
+                        int(k)
+                    ))
+                    logger.info(f"   SQL: Pretraživam dokumente za KLIJENTA")
                 
                 results = cursor.fetchall()
                 cursor.close()
@@ -141,7 +202,7 @@ class RAGManager:
             
             logger.info(f"✅ Pronađeno {len(results)} relevantnih dokumenata")
             
-            # 4. Ekstraktuj samo tekstove (bez embeddings vektora)
+            # 4. Ekstraktuj rezultate
             documents = []
             for row in results:
                 doc_id, tekst, tip_id, distance = row
@@ -157,7 +218,7 @@ class RAGManager:
             
         except Exception as e:
             logger.error(f"❌ Greška pri retrieval-u: {str(e)}")
-            self.db.session.rollback()  # Reset transaction nakon greške
+            self.db.session.rollback()
             return []
     
     def format_context(self, documents):
@@ -175,10 +236,9 @@ class RAGManager:
         
         # Mapiranje tipova na imena
         type_names = {
-            EmbeddingTypes.USER: "👤 KORISNIK",
-            EmbeddingTypes.FIRMA: "🏢 FIRMA",
-            EmbeddingTypes.TERMIN: "📅 TERMIN",
-            EmbeddingTypes.VLASNIK: "👑 VLASNIK"
+            EmbeddingTypes.VLASNIK: "👑 VLASNIK",
+            EmbeddingTypes.ZAPOSLEN: "👤 ZAPOSLENIK",
+            EmbeddingTypes.KLIJENT: "📅 KLIJENT"
         }
         
         kontekst = "=== RELEVANTNI PODACI ===\n\n"
@@ -194,30 +254,49 @@ class RAGManager:
         logger.info(f"📝 Kontekst formatiran: {len(kontekst)} karaktera")
         return kontekst
     
-    def format_user_data_for_embedding(self, user_data):
+    # ============================================================
+    # TIP 1 - VLASNIK (tip_id=1)
+    # ============================================================
+    
+    def format_vlasnik_tip1_for_embedding(self, user_data):
         """
-        Formatiraj korisničke podatke u tekst za embedding (tip: USER)
+        Formatiraj podatke VLASNIKA za embedding (TIP 1 - Red 1)
         
         Args:
-            user_data (dict): Podaci korisnika iz DB
+            user_data (dict): {username, email, brTel, paket, istek_pretplate, ime_preduzeca, opis, paket_limits}
             
         Returns:
             str: Formatiran tekst
         """
-        tekst = f"""
-Korisnik: {user_data.get('username', 'N/A')}
+        paket_limits = user_data.get('paket_limits', {})
+        if isinstance(paket_limits, str):
+            paket_limits = json.loads(paket_limits)
+        
+        limits_str = ""
+        if paket_limits:
+            limits_str = "\nLimitacije paketa:\n"
+            for key, value in paket_limits.items():
+                limits_str += f"  {key}: {value}\n"
+        
+        tekst = f"""Vlasnik: {user_data.get('username', 'N/A')}
 Email: {user_data.get('email', 'N/A')}
 Telefon: {user_data.get('brTel', 'N/A')}
-Zaposlenik u: {user_data.get('zaposlen_u', 'N/A')}
-"""
+Paket: {user_data.get('paket', 'N/A')}
+Istek pretplate: {user_data.get('istek_pretplate', 'N/A')}
+Moje preduzeće: {user_data.get('ime_preduzeca', 'N/A')}
+Opis: {user_data.get('opis', 'N/A')}{limits_str}"""
         return tekst.strip()
     
-    def format_firma_data_for_embedding(self, firma_data):
+    # ============================================================
+    # ZAJEDNIČKE FUNKCIJE - koriste se za sve tipove
+    # ============================================================
+    
+    def format_firma_for_embedding(self, firma_data):
         """
-        Formatiraj firmu + vreme + cenovnik u tekst za embedding (tip: FIRMA)
+        Formatiraj podatke FIRME za embedding (koristi se za TIP 1, 2, 3)
         
         Args:
-            firma_data (dict): Podaci firme iz DB
+            firma_data (dict): {ime, adresa, cenovnik, radno_vreme, overlapLimit}
             
         Returns:
             str: Formatiran tekst
@@ -251,19 +330,20 @@ Zaposlenik u: {user_data.get('zaposlen_u', 'N/A')}
                         cena = item.get('cena', 'N/A')
                         cenovnik_str += f"  {usluga}: {cena} din\n"
         
-        tekst = f"""
-Firma: {firma_data.get('ime', 'N/A')}
+        tekst = f"""Firma: {firma_data.get('ime', 'N/A')}
 Adresa: {firma_data.get('adresa', 'N/A')}
-Kapacitet (overlap limit): {firma_data.get('overlapLimit', 'N/A')}{vreme_str}{cenovnik_str}
-"""
+Kapacitet (overlap limit): {firma_data.get('overlapLimit', 'N/A')}{vreme_str}{cenovnik_str}"""
         return tekst.strip()
     
-    def format_termin_data_for_embedding(self, termin_data):
+    def format_termin_tip1_for_embedding(self, termin_data, firma_ime=None):
         """
-        Formatiraj zakazivanje u tekst za embedding (tip: TERMIN)
+        Formatiraj podatke TERMINA za embedding - VLASNIK/ZAPOSLEN
+        Koristi se za TIP 1 (Red x-y) i TIP 2 (Red 3-x)
         
         Args:
-            termin_data (dict): Podaci termina iz DB
+            termin_data (dict): {created_at, ime, email, telefon, usluga, opis, 
+                                 datum_rezervacije, vreme_rezervacije, potvrdio, otkazano, token}
+            firma_ime (str): Naziv firme (iz preduzeca tabele)
             
         Returns:
             str: Formatiran tekst
@@ -275,8 +355,12 @@ Kapacitet (overlap limit): {firma_data.get('overlapLimit', 'N/A')}{vreme_str}{ce
         if isinstance(usluga, str):
             usluga = json.loads(usluga)
         
-        tekst = f"""
-Zakazivanje:
+        # Ako postoji potvrdio, uključi ime korisnika koji je potvrdio
+        potvrdio_str = ""
+        if termin_data.get('potvrdio'):
+            potvrdio_str = f"Potvrdio: {termin_data.get('potvrdio_ime', 'N/A')}\n"
+        
+        tekst = f"""Zakazivanje - Firma: {firma_ime or 'N/A'}
 Datum: {termin_data.get('datum_rezervacije', 'N/A')}
 Vreme: {termin_data.get('vreme_rezervacije', 'N/A')}
 Klijent: {termin_data.get('ime', 'N/A')}
@@ -285,250 +369,68 @@ Telefon: {termin_data.get('telefon', 'N/A')}
 Usluga: {json.dumps(usluga, ensure_ascii=False)}
 Opis: {termin_data.get('opis', 'N/A')}
 Status: {status}
-Otkazano: {otkazano}
-"""
+{potvrdio_str}Otkazano: {otkazano}"""
         return tekst.strip()
     
-    def format_vlasnik_data_for_embedding(self, vlasnik_data):
+    def format_termin_tip3_for_embedding(self, termin_data, firma_ime=None):
         """
-        Formatiraj vlasnika u tekst za embedding (tip: VLASNIK)
+        Formatiraj podatke TERMINA za embedding - KLIJENT
+        Koristi se za TIP 3 (Red x-y) - samo USLUGA, DATUM, VREME, IME_FIRME
         
         Args:
-            vlasnik_data (dict): Podaci vlasnika iz DB
+            termin_data (dict): {usluga, datum_rezervacije, vreme_rezervacije}
+            firma_ime (str): Naziv firme (iz preduzeca tabele)
             
         Returns:
             str: Formatiran tekst
         """
-        paket_limits = vlasnik_data.get('paket_limits', {})
-        if isinstance(paket_limits, str):
-            paket_limits = json.loads(paket_limits)
+        usluga = termin_data.get('usluga', {})
+        if isinstance(usluga, str):
+            usluga = json.loads(usluga)
         
-        limits_str = ""
-        if paket_limits:
-            limits_str = "\nLimitacije paketa:\n"
-            for key, value in paket_limits.items():
-                limits_str += f"  {key}: {value}\n"
+        tekst = f"""Zakazani termin - Firma: {firma_ime or 'N/A'}
+Usluga: {json.dumps(usluga, ensure_ascii=False)}
+Datum: {termin_data.get('datum_rezervacije', 'N/A')}
+Vreme: {termin_data.get('vreme_rezervacije', 'N/A')}"""
+        return tekst.strip()
+    
+    # ============================================================
+    # TIP 2 - ZAPOSLEN (tip_id=2)
+    # ============================================================
+    
+    def format_zaposlen_tip2_for_embedding(self, user_data, firma_ime=None):
+        """
+        Formatiraj podatke ZAPOSLENIKA za embedding (TIP 2 - Red 1)
         
-        tekst = f"""
-Vlasnik: {vlasnik_data.get('username', 'N/A')}
-Paket: {vlasnik_data.get('paket', 'N/A')}
-Istek pretplate: {vlasnik_data.get('istek_pretplate', 'N/A')}
-Firme: {vlasnik_data.get('ime_preduzeca', 'N/A')}
-Opis: {vlasnik_data.get('opis', 'N/A')}{limits_str}
-"""
+        Args:
+            user_data (dict): {username, email, brTel}
+            firma_ime (str): Naziv firme gdje radi
+            
+        Returns:
+            str: Formatiran tekst
+        """
+        tekst = f"""Zaposlenik: {user_data.get('username', 'N/A')}
+Email: {user_data.get('email', 'N/A')}
+Telefon: {user_data.get('brTel', 'N/A')}
+Radi u firmi: {firma_ime or 'N/A'}"""
+        return tekst.strip()
+    
+    # ============================================================
+    # TIP 3 - KLIJENT (tip_id=3)
+    # ============================================================
+    
+    def format_vlasnik_info_tip3_for_embedding(self, user_data):
+        """
+        Formatiraj datos VLASNIKA za embedding - KLIJENT (TIP 3 - Red 1)
+        Samo: ime_preduzeca, opis
+        
+        Args:
+            user_data (dict): {ime_preduzeca, opis}
+            
+        Returns:
+            str: Formatiran tekst
+        """
+        tekst = f"""Preduzeće: {user_data.get('ime_preduzeca', 'N/A')}
+Opis: {user_data.get('opis', 'N/A')}"""
         return tekst.strip()
 
-    def expand_query(self, pitanje):
-        """
-        Query Expansion - Generiši sinonimne i povezane varijante pitanja
-        Koristi se za bolju pronalaženje semantički sličnih dokumenata
-        
-        Args:
-            pitanje (str): Originalno pitanje korisnika
-            
-        Returns:
-            list: Lista od N varijanti pitanja
-        """
-        # Sinonimni izrazi u srpskom jeziku
-        sinonimi = {
-            'koliko': ['broj', 'ukupno', 'suma', 'koliko ima'],
-            'termin': ['zakazivanje', 'appointment', 'rezervacija', 'sat'],
-            'zaposlenik': ['radnik', 'employee', 'osoblje', 'timski član'],
-            'firma': ['preduzeće', 'company', 'organizacija', 'poslodavac'],
-            'datum': ['dan', 'vreme', 'vremenski period'],
-            'status': ['stanje', 'aktualnost', 'potvrda']
-        }
-        
-        expanded = [pitanje]  # Originaleno prvo
-        
-        # Generiši nekoliko varijanti kroz zamjenu sinonima
-        for key, values in sinonimi.items():
-            if key.lower() in pitanje.lower():
-                for syn in values[:2]:  # Limit od 2 sinonima po ključi
-                    variant = pitanje.lower().replace(key, syn)
-                    if variant not in expanded:
-                        expanded.append(variant)
-        
-        logger.info(f"🔄 Query expansion: {len(expanded)} varijanti")
-        return expanded[:5]  # Limit od 5 maksimalno
-
-    def rerank_documents(self, documents, pitanje, boost_types=None):
-        """
-        Reranking - Resortiraj dokumente sa hybrid scoring
-        Kombinuje semantic similarity + metadata relevance
-        
-        Args:
-            documents (list): Pronađeni dokumenti
-            pitanje (str): Originalno pitanje
-            boost_types (list): Tipovi za boost scoring
-            
-        Returns:
-            list: Sortiran lista dokumenata po relevantnosti
-        """
-        if not documents:
-            return documents
-        
-        # Default boost za TERMIN i VLASNIK (važnijtipo)
-        if boost_types is None:
-            boost_types = [EmbeddingTypes.TERMIN, EmbeddingTypes.VLASNIK]
-        
-        # Recalculate scores sa boost
-        for doc in documents:
-            # Bazični score (inverzna distanca)
-            base_score = 1.0 / (1.0 + doc['distance'])
-            
-            # Boost ako je tip u boost_types
-            type_boost = 1.3 if doc.get('tip_id') in boost_types else 1.0
-            
-            # Final score
-            doc['score'] = base_score * type_boost
-        
-        # Sortiraj po score descending
-        documents.sort(key=lambda d: d.get('score', 0), reverse=True)
-        
-        logger.info(f"📊 Reranking dovršen: top doc score={documents[0].get('score', 0):.3f}")
-        return documents
-
-    def aggregate_analytics(self, documents, user_id):
-        """
-        Analytics Aggregation - Za vlasnika, generiši statistiku iz dokumenata
-        
-        Args:
-            documents (list): Pronađeni dokumenti (TERMIN tipovi)
-            user_id (int): User ID vlasnika
-            
-        Returns:
-            dict: Statistika (broj termina, potvrdeni, otkazani, itd)
-        """
-        termin_docs = [d for d in documents if d.get('tip_id') == EmbeddingTypes.TERMIN]
-        
-        if not termin_docs:
-            return {}
-        
-        stats = {
-            'total_termins': len(termin_docs),
-            'confirmed': 0,
-            'cancelled': 0,
-            'pending': 0,
-            'relevance_avg': sum(d.get('score', 0) for d in termin_docs) / len(termin_docs)
-        }
-        
-        logger.info(f"📈 Analitika: {stats['total_termins']} termina, avg relevance={stats['relevance_avg']:.2f}")
-        return stats
-
-    def retrieve_documents_advanced(self, user_id, pitanje, role='vlasnik', k=7):
-        """
-        Advanced Retrieval - Role-based pronalaženje sa query expansion i reranking
-        
-        Args:
-            user_id (int): ID korisnika
-            pitanje (str): Pitanje korisnika
-            role (str): 'vlasnik', 'zaposlen', 'gost'
-            k (int): Broj rezultata
-            
-        Returns:
-            dict: {documents, analytics, expanded_queries, metadata}
-        """
-        logger.info(f"🚀 Advanced RAG retrieval - Role: {role}, User: {user_id}")
-        
-        # 1. Query Expansion
-        expanded_queries = self.expand_query(pitanje)
-        
-        # 2. Retrieval sa role-specific persmisijama
-        all_documents = []
-        
-        for query in expanded_queries:
-            try:
-                # Generiši embedding za expanded query
-                query_embedding = self.generate_embedding(query)
-                embedding_str = '[' + ','.join(str(x) for x in query_embedding) + ']'
-                
-                # Odredi dozvoljene tipove po ulozi
-                if role == 'vlasnik':
-                    allowed_types = [EmbeddingTypes.USER, EmbeddingTypes.FIRMA, 
-                                   EmbeddingTypes.TERMIN, EmbeddingTypes.VLASNIK]
-                    # Vlasnik vidi sve svoje podatke
-                    where_clause = "user_id = %s"
-                    
-                elif role == 'zaposlen':
-                    allowed_types = [EmbeddingTypes.FIRMA, EmbeddingTypes.TERMIN, EmbeddingTypes.USER]
-                    # Zaposlenik vidi samo svoje firme termine
-                    where_clause = """
-                        (user_id = %s OR 
-                         (firma_id = (SELECT zaposlen_u FROM users WHERE id = %s) AND tip_id = ANY(%s)))
-                    """
-                    
-                else:  # gost/zakazivac
-                    allowed_types = [EmbeddingTypes.FIRMA, EmbeddingTypes.TERMIN]
-                    where_clause = "tip_id = ANY(%s)"
-                
-                # Execute raw SQL sa pgvector
-                conn = self.db.engine.raw_connection()
-                try:
-                    cursor = conn.cursor()
-                    
-                    query_sql = f"""
-                        SELECT id, tekst, tip_id, embedding <-> %s::vector as distance, firma_id
-                        FROM embeddings
-                        WHERE {where_clause}
-                          AND tip_id = ANY(%s)
-                        ORDER BY embedding <-> %s::vector
-                        LIMIT %s
-                    """
-                    
-                    if role == 'zaposlen':
-                        cursor.execute(query_sql, (embedding_str, user_id, user_id, 
-                                                 allowed_types, embedding_str, k*2))
-                    elif role == 'gost':
-                        cursor.execute(query_sql, (embedding_str, allowed_types, 
-                                                 embedding_str, k))
-                    else:  # vlasnik
-                        cursor.execute(query_sql, (embedding_str, user_id, 
-                                                 allowed_types, embedding_str, k*2))
-                    
-                    results = cursor.fetchall()
-                    cursor.close()
-                    
-                    for row in results:
-                        doc_id, tekst, tip_id, distance, firma_id = row
-                        doc = {
-                            'id': doc_id,
-                            'tekst': tekst,
-                            'tip_id': tip_id,
-                            'distance': float(distance),
-                            'firma_id': firma_id,
-                            'query_source': query  # Track which query pronašao ovaj doc
-                        }
-                        if doc not in all_documents:  # Izbegni duplikate
-                            all_documents.append(doc)
-                
-                finally:
-                    conn.close()
-                    
-            except Exception as e:
-                logger.error(f"❌ Greška pri expanded query retrieval-u: {str(e)}")
-        
-        # 3. Reranking
-        reranked = self.rerank_documents(all_documents, pitanje)
-        
-        # 4. Výber top K
-        final_docs = reranked[:k]
-        
-        # 5. Analytics (ako je vlasnik)
-        analytics = {}
-        if role == 'vlasnik':
-            analytics = self.aggregate_analytics(final_docs, user_id)
-        
-        logger.info(f"✅ Advanced retrieval završen: {len(final_docs)} docs, {len(set(q for q in expanded_queries))} queries")
-        
-        return {
-            'documents': final_docs,
-            'analytics': analytics,
-            'expanded_queries': expanded_queries,
-            'metadata': {
-                'role': role,
-                'total_candidates': len(all_documents),
-                'final_count': len(final_docs),
-                'k_requested': k
-            }
-        }
