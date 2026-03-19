@@ -213,9 +213,8 @@ class RAGManager:
                     'distance': float(distance)
                 })
                 # Ispis sa tekstom
-                tekst_preview = tekst[:120].replace('\n', ' ')  # Prvih 120 karaktera, zamijeni newlines
                 logger.info(f"   📄 Doc {doc_id} (tip {tip_id}): relevance={distance:.3f}")
-                logger.info(f"      >>> {tekst_preview}")
+                logger.info(f"      >>> {tekst}")
             
             return documents
             
