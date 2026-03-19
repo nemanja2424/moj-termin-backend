@@ -1,1216 +1,569 @@
+"""
+Batch Import Embeddings V2 - NOVA LOGIKA
+Učitava podatke u embeddings tabelu sa novom tipologijom:
+- Tip 1: VLASNIK (sve njihove podatke)
+- Tip 2: ZAPOSLEN (samo svoju firmu i termine)  
+- Tip 3: KLIJENT (samo firme i terme - bez detalja)
+
+Pokretanje:
+  Windows: python backend_tools/batch_import_embeddings_v2.py
+  VPS: python3 backend_tools/batch_import_embeddings_v2.py
+"""
+
+import sys
 import os
-from flask import Flask, jsonify, request, send_from_directory
-from werkzeug.utils import secure_filename
-from flask_cors import CORS
-from flask_sqlalchemy import SQLAlchemy
-from flask_jwt_extended import JWTManager, jwt_required, get_jwt_identity
-from dotenv import load_dotenv
-from routes.auth import auth_bp
-from datetime import timedelta, datetime
-import requests
-from sqlalchemy import text
 import json
-import secrets
-from mailManager import send_confirmation_email, send_email_to_workers, html_head
-from ai.askAI import askAI
-from ai.chat_manager import (
-    create_new_chat, save_chat_message, load_chat, 
-    get_user_chats, delete_chat, rename_chat
-)
-from ai.ai_limiter import check_and_increment_ai_usage
-from routes.aiInfo import get_ai_data_for_user
+from datetime import datetime
 
-# Učitavanje .env fajla
-load_dotenv()
+# Dodaj parent direktorijum u path
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-def env_verify():
-    required_vars = ['SMTP_SERVER', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASSWORD', 'DATABASE', 'PORT', 'SQL_USER', 'SQL_PWD', 'VPS_IP']
-    missing_vars = [var for var in required_vars if not os.getenv(var)]
+from app import app, db
+from ai.rag_manager import RAGManager, EmbeddingTypes
+from sqlalchemy import text
+
+from threading import Semaphore
+MAX_EMBEDDINGS = 10
+embedding_limit = Semaphore(MAX_EMBEDDINGS)
+
+
+def log_progress(message, level="INFO"):
+    """Logaj napredak"""
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[{timestamp}] {level}: {message}")
+
+
+def get_rag_manager():
+    """Get RAG manager instance"""
+    return RAGManager(db)
+
+
+def batch_import_vlasnici_tip1(limit=None):
+    """
+    ========== TIP 1 - VLASNIK ==========
+    Red 1: User info vlasnika
+    Red 2-N: Firma info za svaku firmu vlasnika  
+    Red N+1-M: Termin info za sve termine u svim firmama vlasnika
     
-    if missing_vars:
-        print(f"⚠️  UPOZORENJE: Nedostaju sledeće varijable u .env: {', '.join(missing_vars)}")
-        print("   Molimo kreirajte .env fajl na osnovu .env.example")
-        return False
+    Args:
+        limit (int): Limitiraj broj vlasnika (za test)
+    """
+    log_progress("🔄 Počinjem import TIP 1 - VLASNIK", "START")
     
-    print("✅ .env je uspesno ucitan")
-    return True
-
-# Kreiranje Flask aplikacije
-app = Flask(__name__)
-CORS(app)
-env_verify()
-
-# JWT Konfiguracija
-app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET', 'default-secret-key-promenite-u-env')
-app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(days=30)
-jwt = JWTManager(app)
-
-# Konfiguracija baze za SQLAlchemy
-app.config['SQLALCHEMY_DATABASE_URI'] = (
-    f"postgresql://{os.getenv('SQL_USER')}:{os.getenv('SQL_PWD')}"
-    f"@{os.getenv('VPS_IP')}:{os.getenv('PORT')}/{os.getenv('DATABASE')}"
-)
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
-    'pool_size': 20,
-    'pool_recycle': 3600,  # Recikliraj konekciju svakog sata
-    'pool_pre_ping': True,  # Provjeri konekciju prije koištenja
-    'connect_args': {
-        'connect_timeout': 10,
-        'application_name': 'moj_termin_api'
-    }
-}
-
-db = SQLAlchemy(app)
-
-
-
-
-# Registracija blueprint-a za autentifikaciju
-from routes.auth import auth_bp
-app.register_blueprint(auth_bp, url_prefix="/api/auth")
-
-from routes.zakazi import zakazi_bp
-app.register_blueprint(zakazi_bp, url_prefix="/api/zakazi")
-
-from routes.podesavanja import podesavnja_bp
-app.register_blueprint(podesavnja_bp, url_prefix="/api/podesavanja")
-
-from routes.zaposleni import zaposleni_bp
-app.register_blueprint(zaposleni_bp, url_prefix="/api/zaposleni")
-
-from routes.brend import brend_bp
-app.register_blueprint(brend_bp, url_prefix="/api/brend")
-
-from routes.aiInfo import aiInfo_bp
-app.register_blueprint(aiInfo_bp, url_prefix="/api/ai/info")
-
-from routes.zakazivanja import zakazivanja_bp
-app.register_blueprint(zakazivanja_bp, url_prefix="/api/zakazivanja")
-
-from routes.admin import admin_bp
-app.register_blueprint(admin_bp, url_prefix="/api/admin")
-
-
-from routes.tests import tests_bp
-app.register_blueprint(tests_bp, url_prefix='/api/tests')
-
-
-# Pre-učitaj embedding model pri pokretanju aplikacije
-# Ovo sprečava kašnjenje na prvom AI zahtjevu
-with app.app_context():
-    from ai.rag_manager import preload_model
-    preload_model()
-
-
-
-
-
-@app.route('/api/hello', methods=['GET'])
-def hello():
-    return jsonify({"message": "Zdravo iz Flask API-ja!"})
-
-UPLOAD_FOLDER = '/var/www/moj-termin-frontend/public/logos'
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-@app.route('/api/novi_logo', methods=['POST'])
-@jwt_required()
-def upload_logo():
-    if 'file' not in request.files:
-        return jsonify({'error': 'No file part'}), 400
-
-    file = request.files['file']
-    if file.filename == '':
-        return jsonify({'error': 'No selected file'}), 400
-
-    filename = secure_filename(file.filename)
-    file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
-
-    userId = get_jwt_identity()
-    logoName = f'{file.filename}'
-
+    rag = get_rag_manager()
+    count = 0
+    
     try:
-        with app.app_context():
-            # Ažuriraj putanja_za_logo u users tabeli
-            update_query = text("""
-                UPDATE users
-                SET putanja_za_logo = :logo_name
-                WHERE id = :user_id
-            """)
-            db.session.execute(update_query, {'logo_name': logoName, 'user_id': int(userId)})
-            db.session.commit()
-
-        return jsonify({'message': 'Logo uploaded successfully', 'filename': filename}), 200
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route("/api/logo/<filename>")
-def serve_logo(filename):
-    if filename == "/images/logo.webp":
-        return send_from_directory("/var/www/moj-termin-frontend/public/Images", "logo.webp")
-    
-    safe_name = secure_filename(filename)
-    putanja = f'/var/www/moj-termin-frontend/public/logos'
-    print(putanja)
-    return send_from_directory(putanja, safe_name)
-
-
-
-@app.route('/api/zakazi', methods=['POST'])
-def zakazi_termin():
-    try:
-        from app import db, app
+        # Pronađi sve vlasniče (users sa zaposlen_u = 0)
+        query = text("""
+            SELECT id, username, email, brTel, paket, istek_pretplate, 
+                   ime_preduzeca, opis, paket_limits
+            FROM users
+            WHERE zaposlen_u = 0
+            ORDER BY id
+        """)
+        if limit:
+            query = text(query.text + f" LIMIT {limit}")
         
-        # Čitanje JSON podataka iz request-a
-        data = request.get_json()
+        vlasnici = db.session.execute(query).fetchall()
+        log_progress(f"📊 Pronađeno {len(vlasnici)} vlasnika za TIP 1 import")
         
-        # Ekstraktovanje poddata iz "podaci" objekta
-        podaci = data.get('podaci', {})
-        user_id = data.get('userId')
-        preduzece_id = podaci.get('lokacija')
-        
-        # Validacija obaveznih polja
-        if not podaci.get('email'):
-            return jsonify({
-                "success": False,
-                "error": "Email je obavezan"
-            }), 400
-        
-        # Validacija preduzece_id
-        if not preduzece_id:
-            return jsonify({
-                "success": False,
-                "error": "Lokacija (preduzece) je obavezna"
-            }), 400
-        
-        try:
-            preduzece_id = int(preduzece_id)
-        except (ValueError, TypeError):
-            return jsonify({
-                "success": False,
-                "error": "Lokacija mora biti validan broj"
-            }), 400
-        
-        # Validacija i kreiranje datuma
-        try:
-            datum_rezervacije = podaci.get('datum_rezervacije', '').strip()
+        # ===== RED 1: User info vlasnika =====
+        for vlasnik_row in vlasnici:
+            vlasnik_id, username, email, brTel, paket, istek_pretplate, ime_preduzeca, opis, paket_limits = vlasnik_row
             
-            # Pokušaj da parsam datum iz dela: YYYY-MM-DD
-            if datum_rezervacije:
-                date_parts = datum_rezervacije.split('-')
-                if len(date_parts) == 3:
-                    godina, mesec, dan = int(date_parts[0]), int(date_parts[1]), int(date_parts[2])
-                    
-                    if dan < 1 or dan > 31:
-                        return jsonify({
-                            "success": False,
-                            "error": f"Neispravan dan: {dan}. Dan mora biti između 1 i 31"
-                        }), 400
-                    
-                    # Kreiraj validan datum
-                    datum_rezervacije = f"{godina:04d}-{mesec:02d}-{dan:02d}"
-                    datetime.strptime(datum_rezervacije, '%Y-%m-%d')
-                else:
-                    return jsonify({
-                        "success": False,
-                        "error": "Neispravan format datuma. Očekujem YYYY-MM-DD"
-                    }), 400
-            else:
-                # Ako nema datum_rezervacije, koristi dan, mesec, godina
-                dan = podaci.get('dan', '')
-                mesec = podaci.get('mesec', '')
-                godina = podaci.get('godina', '')
-                
-                if not dan or not mesec or not godina:
-                    return jsonify({
-                        "success": False,
-                        "error": "Dan, mesec i godina su obavezni"
-                    }), 400
-                
-                dan = int(dan)
-                mesec = int(mesec) + 1  # mesec je 0-11 pa se dodaje 1
-                godina = int(godina)
-                
-                if dan < 1 or dan > 31 or mesec < 1 or mesec > 12 or godina < 2000:
-                    return jsonify({
-                        "success": False,
-                        "error": "Neispravan datum - dan (1-31), mesec (1-12) ili godina (≥2000)"
-                    }), 400
-                
-                datum_rezervacije = f"{godina:04d}-{mesec:02d}-{dan:02d}"
-                datetime.strptime(datum_rezervacije, '%Y-%m-%d')
+            user_data = {
+                'username': username,
+                'email': email,
+                'brTel': brTel,
+                'paket': paket,
+                'istek_pretplate': istek_pretplate,
+                'ime_preduzeca': ime_preduzeca,
+                'opis': opis,
+                'paket_limits': paket_limits
+            }
             
-        except ValueError as e:
-            return jsonify({
-                "success": False,
-                "error": f"Neispravan datum: {str(e)}"
-            }), 400
-        
-        # Generisanje tokena
-        token = secrets.token_urlsafe(10)
-        
-        with app.app_context():
-            # Proveravanje da li preduzeće postoji
-            preduzeca_check = text("SELECT vlasnik, ime FROM preduzeca WHERE id = :id")
-            preduzeca_result = db.session.execute(preduzeca_check, {'id': int(preduzece_id)}).fetchone()
+            tekst = rag.format_vlasnik_tip1_for_embedding(user_data)
             
-            if not preduzeca_result:
-                return jsonify({
-                    "success": False,
-                    "error": "Preduzeće nije pronađeno"
-                }), 404
+            with embedding_limit:
+                embedding = rag.generate_embedding(tekst)
             
-            vlasnik_id = preduzeca_result[0]
-            preduzece_ime = preduzeca_result[1]
-            
-            # Kreiranje novog zakazivanja
             insert_query = text("""
-                INSERT INTO zakazivanja (
-                    ime_firme, ime, email, telefon, datum_rezervacije, vreme_rezervacije,
-                    usluga, opis, potvrdio, token, otkazano, created_at
-                ) VALUES (
-                    :ime_firme, :ime, :email, :telefon, :datum_rezervacije, :vreme_rezervacije,
-                    :usluga, :opis, :potvrdio, :token, :otkazano, :created_at
-                )
-                RETURNING id, ime_firme, ime, email, telefon, datum_rezervacije, 
-                          vreme_rezervacije, usluga, opis, potvrdio, created_at
+                INSERT INTO embeddings (user_id, firma_id, termin_id, tip_id, tekst, embedding)
+                VALUES (:user_id, :firma_id, :termin_id, :tip_id, :tekst, :embedding)
+                ON CONFLICT DO NOTHING
             """)
             
-            params = {
-                'ime_firme': int(preduzece_id),
-                'ime': podaci.get('ime') or podaci.get('email'),
-                'email': podaci.get('email'),
-                'telefon': podaci.get('telefon'),
-                'datum_rezervacije': datum_rezervacije,
-                'vreme_rezervacije': podaci.get('vreme'),
-                'usluga': json.dumps(podaci.get('usluga', {})),
-                'opis': podaci.get('opis', ''),
-                'potvrdio': int(user_id) if user_id else None,
-                'token': token,
-                'otkazano': False,
-                'created_at': datetime.utcnow()
+            db.session.execute(insert_query, {
+                'user_id': vlasnik_id,
+                'firma_id': None,
+                'termin_id': None,
+                'tip_id': EmbeddingTypes.VLASNIK,
+                'tekst': tekst,
+                'embedding': str(embedding)
+            })
+            
+            count += 1
+            
+            # ===== RED 2-N: Firma info za sve firme vlasnika =====
+            firme_query = text("""
+                SELECT id, ime, adresa, radno_vreme, cenovnik, overlapLimit
+                FROM preduzeca
+                WHERE vlasnik = :vlasnik_id
+            """)
+            firme = db.session.execute(firme_query, {'vlasnik_id': vlasnik_id}).fetchall()
+            
+            for firma_row in firme:
+                firma_id, ime, adresa, radno_vreme, cenovnik, overlapLimit = firma_row
+                
+                firma_data = {
+                    'ime': ime,
+                    'adresa': adresa,
+                    'radno_vreme': radno_vreme,
+                    'cenovnik': cenovnik,
+                    'overlapLimit': overlapLimit
+                }
+                
+                tekst = rag.format_firma_for_embedding(firma_data)
+                
+                with embedding_limit:
+                    embedding = rag.generate_embedding(tekst)
+                
+                db.session.execute(insert_query, {
+                    'user_id': vlasnik_id,
+                    'firma_id': firma_id,
+                    'termin_id': None,
+                    'tip_id': EmbeddingTypes.VLASNIK,
+                    'tekst': tekst,
+                    'embedding': str(embedding)
+                })
+                
+                count += 1
+                
+                # ===== RED N+1-M: Termin info za sve termine u ovoj firmi =====
+                termini_query = text("""
+                    SELECT z.id, z.created_at, z.ime, z.email, z.telefon,
+                           z.usluga, z.opis, z.datum_rezervacije, z.vreme_rezervacije,
+                           z.potvrdio, z.otkazano, z.token, p.ime as firma_ime
+                    FROM zakazivanja z
+                    JOIN preduzeca p ON z.ime_firme = p.id
+                    WHERE z.ime_firme = :firma_id
+                    ORDER BY z.id
+                """)
+                termini = db.session.execute(termini_query, {'firma_id': firma_id}).fetchall()
+                
+                for termin_row in termini:
+                    (termin_id, created_at, ime, email, telefon,
+                     usluga, opis, datum, vreme, potvrdio, otkazano, token, firma_ime) = termin_row
+                    
+                    termin_data = {
+                        'created_at': str(created_at),
+                        'ime': ime,
+                        'email': email,
+                        'telefon': telefon,
+                        'usluga': usluga,
+                        'opis': opis,
+                        'datum_rezervacije': str(datum),
+                        'vreme_rezervacije': vreme,
+                        'potvrdio': potvrdio,
+                        'otkazano': otkazano,
+                        'token': token
+                    }
+                    
+                    # Ako je potvrdio, pronađi ime usera koji je potvrdio
+                    if potvrdio:
+                        potvrdio_user = db.session.execute(
+                            text("SELECT username FROM users WHERE id = :id"),
+                            {'id': potvrdio}
+                        ).fetchone()
+                        termin_data['potvrdio_ime'] = potvrdio_user[0] if potvrdio_user else 'N/A'
+                    
+                    tekst = rag.format_termin_tip1_for_embedding(termin_data, firma_ime)
+                    
+                    with embedding_limit:
+                        embedding = rag.generate_embedding(tekst)
+                    
+                    db.session.execute(insert_query, {
+                        'user_id': vlasnik_id,
+                        'firma_id': firma_id,
+                        'termin_id': termin_id,
+                        'tip_id': EmbeddingTypes.VLASNIK,
+                        'tekst': tekst,
+                        'embedding': str(embedding)
+                    })
+                    
+                    count += 1
+                
+                if count % 100 == 0:
+                    log_progress(f"✅ TIP 1 - Importovano {count} zapisa do sada")
+        
+        db.session.commit()
+        log_progress(f"✅ TIP 1 - VLASNIK import završen! Ukupno: {count} zapisa", "SUMMARY")
+        return count
+        
+    except Exception as e:
+        db.session.rollback()
+        log_progress(f"❌ Greška pri TIP 1 import-u: {str(e)}", "ERROR")
+        return 0
+
+
+def batch_import_zaposleni_tip2(limit=None):
+    """
+    ========== TIP 2 - ZAPOSLEN ==========
+    Red 1: User info zaposlenika
+    Red 2: Firma info (samo firma gdje radi)
+    Red 3-N: Termin info (samo termini u toj firmi)
+    
+    Args:
+        limit (int): Limitiraj broj zaposlenih (za test)
+    """
+    log_progress("🔄 Počinjem import TIP 2 - ZAPOSLEN", "START")
+    
+    rag = get_rag_manager()
+    count = 0
+    
+    try:
+        # Pronađi sve zaposlene (users gdje zaposlen_u > 0)
+        query = text("""
+            SELECT id, username, email, brTel, zaposlen_u
+            FROM users
+            WHERE zaposlen_u > 0
+            ORDER BY id
+        """)
+        if limit:
+            query = text(query.text + f" LIMIT {limit}")
+        
+        zaposleni = db.session.execute(query).fetchall()
+        log_progress(f"📊 Pronađeno {len(zaposleni)} zaposlenih za TIP 2 import")
+        
+        for zaposlenik_row in zaposleni:
+            zaposlenik_id, username, email, brTel, firma_id = zaposlenik_row
+            
+            # ===== RED 1: User info zaposlenika =====
+            # Pronađi naziv firme
+            firma_info = db.session.execute(
+                text("SELECT ime FROM preduzeca WHERE id = :id"),
+                {'id': firma_id}
+            ).fetchone()
+            firma_ime = firma_info[0] if firma_info else 'N/A'
+            
+            user_data = {
+                'username': username,
+                'email': email,
+                'brTel': brTel
             }
             
-            # Izvršavanje insertovanja
-            result = db.session.execute(insert_query, params).fetchone()
-            db.session.commit()
+            tekst = rag.format_zaposlen_tip2_for_embedding(user_data, firma_ime)
             
-            # Dohvatanje vlasnika preduzeca
-            vlasnik_query = text("""
-                SELECT id, username, email, brTel, paket FROM users WHERE id = :id
+            with embedding_limit:
+                embedding = rag.generate_embedding(tekst)
+            
+            insert_query = text("""
+                INSERT INTO embeddings (user_id, firma_id, termin_id, tip_id, tekst, embedding)
+                VALUES (:user_id, :firma_id, :termin_id, :tip_id, :tekst, :embedding)
+                ON CONFLICT DO NOTHING
             """)
-            vlasnik_info = db.session.execute(vlasnik_query, {'id': vlasnik_id}).fetchone()
             
-            # Dohvatanje lokacije sa adresom
-            lokacija_query = text("""
-                SELECT adresa FROM preduzeca WHERE id = :id
-            """)
-            lokacija_info = db.session.execute(lokacija_query, {'id': int(preduzece_id)}).fetchone()
-            adresa = lokacija_info[0] if lokacija_info else ''
+            db.session.execute(insert_query, {
+                'user_id': zaposlenik_id,
+                'firma_id': firma_id,
+                'termin_id': None,
+                'tip_id': EmbeddingTypes.ZAPOSLEN,
+                'tekst': tekst,
+                'embedding': str(embedding)
+            })
             
-            # Formatiranje datuma i vremena
-            date_parts = datum_rezervacije.split('-')
-            godina, mesec, dan = int(date_parts[0]), int(date_parts[1]), int(date_parts[2])
-            datum_i_vreme = f"{dan}.{mesec}.{godina} u {podaci.get('vreme')}"
+            count += 1
             
-            # Slanje potvrde emaila zakazivačу
-            subject = f"Zakazivanje termina - {preduzece_ime}"
-            poruka = f"""Poštovani,
-            Vaš termin u {preduzece_ime} je uspešno zakazan za {datum_i_vreme}, na adresi {adresa}. Dobićete obaveštenje kada neko potvrdi vaš termin.
-            Takođe možete izmeniti vreme i datum Vašeg termina na linku ispod. Nakon izmene očekujte ponovnu potvrdu.
-            https://mojtermin.site/zakazi/{vlasnik_id}/izmeni/{token}
+            # ===== RED 2: Firma info (samo firma gdje radi) =====
+            firma_full = db.session.execute(
+                text("SELECT ime, adresa, radno_vreme, cenovnik, overlapLimit FROM preduzeca WHERE id = :id"),
+                {'id': firma_id}
+            ).fetchone()
             
-            Hvala što ste izabrali našu uslugu! Ovu uslugu je omogućio servis Moj Termin."""
-
-            html_poruka = f"""
-            <html>
-                {html_head}
-                <body>
-                    <div class="content">
-                    <h2>Poštovani,</h2>
-                    <p>Vaš termin u {preduzece_ime} je <b>uspešno zakazan</b> za <b>{datum_i_vreme}</b> na adresi <b>{adresa}</b>. Dobićete obaveštenje kada neko potvrdi vaš termin.</p>
-                    <p>Takođe možete izmeniti vreme i datum Vašeg termina. Nakon izmene očekujte ponovnu potvrdu.</p>
-                    <a href="https://mojtermin.site/zakazi/{vlasnik_id}/izmeni/{token}" class="btn">Izmenite termin</a>
-                    <p style="margin-top: 20px;">Hvala što ste izabrali našu uslugu! Ovu uslugu je omogućio servis <b><a href="https://mojtermin.site">Moj Termin</a></b>.</p>
-                    </div>
-                </body>
-            </html>
-            """
-
-            # Slanje emaila sa error handling-om
-            try:
-                send_confirmation_email(
-                    podaci.get('email'),
-                    poruka,
-                    subject,
-                    html_poruka
-                )
-            except Exception as email_error:
-                print(f"❌ Greška pri slanju potvrde emaila: {str(email_error)}")
-            
-            # Slanje mejla zaposlenima ako je userId postavljen (nije null)
-            if user_id is None:
-                print(f"Slanje mejla zaposlenima...")
-                try:
-                    send_email_to_workers(
-                        vlasnik_id,
-                        'Novo zakazivanje',
-                        token,
-                        int(preduzece_id),
-                        preduzece_ime,
-                        datum_i_vreme,
-                        podaci.get('ime') or podaci.get('email')
-                    )
-                except Exception as worker_email_error:
-                    print(f"❌ Greška pri slanju emaila zaposlenima: {str(worker_email_error)}")
-            else:
-                print(f"UserId je {user_id}, mejl zaposlenima se ne šalje")
-        
-        return jsonify({
-            "success": True,
-            "message": "Zakazivanje uspešno",
-            "zakazivanje_id": result[0],
-            "token": token
-        }), 201
-        
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 500
-
-
-@app.route('/api/zakazi/izmena', methods=['POST'])
-def izmeniTermin():
-    """
-    Izmena zakazivanja u bazi podataka na osnovu tokena.
-    Ažurira podatke zakazivanja i šalje odgovarajuće mejlove.
-    """
-    try:
-        data = request.json
-        podaci = data.get('podaci', {})
-        token = data.get('token')
-        tip_ulaska = data.get('tipUlaska')
-        user_id = data.get('userId')
-        stari_podaci = data.get('stariPodaci', {})
-        
-        # Validacija obaveznih polja
-        if not podaci:
-            return jsonify({'error': 'Nedostaju podaci'}), 400
-        if not token:
-            return jsonify({'error': 'Nema tokena'}), 400
-        
-        with app.app_context():
-            # 1. Pronađi zakazivanje po tokenu
-            find_query = text("SELECT id, ime_firme FROM zakazivanja WHERE token = :token")
-            result = db.session.execute(find_query, {'token': token}).fetchone()
-            
-            if not result:
-                return jsonify({'error': 'Zakazivanje nije pronađeno'}), 404
-            
-            zakaz_id, ime_firme_id = result[0], result[1]
-            
-            # 2. Pripremi datum za ažuriranje
-            datum_rezervacije = None
-            if podaci.get('datum_rezervacije'):
-                datum_rezervacije = podaci.get('datum_rezervacije')
-            else:
-                dan = podaci.get('dan', '')
-                mesec = podaci.get('mesec', '')
-                godina = podaci.get('godina', '')
+            if firma_full:
+                ime, adresa, radno_vreme, cenovnik, overlapLimit = firma_full
                 
-                if dan and mesec and godina:
-                    dan = int(dan)
-                    mesec = int(mesec) + 1  # mesec je 0-11
-                    godina = int(godina)
-                    datum_rezervacije = f"{godina:04d}-{mesec:02d}-{dan:02d}"
-            
-            # 3. Ažuriraj zakazivanje u bazi
-            # Ako korisnik menja (tipUlaska == 2), resetuj potvrdu
-            if tip_ulaska == 2:
-                update_query = text("""
-                    UPDATE zakazivanja 
-                    SET 
-                        ime = :ime,
-                        email = :email,
-                        telefon = :telefon,
-                        datum_rezervacije = :datum_rezervacije,
-                        vreme_rezervacije = :vreme_rezervacije,
-                        usluga = :usluga,
-                        opis = :opis,
-                        ime_firme = :ime_firme,
-                        potvrdio = NULL
-                    WHERE token = :token
-                    RETURNING id, ime_firme, ime, email, telefon, datum_rezervacije, 
-                              vreme_rezervacije, usluga, opis
+                firma_data = {
+                    'ime': ime,
+                    'adresa': adresa,
+                    'radno_vreme': radno_vreme,
+                    'cenovnik': cenovnik,
+                    'overlapLimit': overlapLimit
+                }
+                
+                tekst = rag.format_firma_for_embedding(firma_data)
+                
+                with embedding_limit:
+                    embedding = rag.generate_embedding(tekst)
+                
+                db.session.execute(insert_query, {
+                    'user_id': zaposlenik_id,
+                    'firma_id': firma_id,
+                    'termin_id': None,
+                    'tip_id': EmbeddingTypes.ZAPOSLEN,
+                    'tekst': tekst,
+                    'embedding': str(embedding)
+                })
+                
+                count += 1
+                
+                # ===== RED 3-N: Termini samo te firme - ALI user_id je VLASNIK! =====
+                vlasnik_id = db.session.execute(
+                    text("SELECT vlasnik FROM preduzeca WHERE id = :id"),
+                    {'id': firma_id}
+                ).fetchone()[0]
+                
+                termini_query = text("""
+                    SELECT z.id, z.created_at, z.ime, z.email, z.telefon,
+                           z.usluga, z.opis, z.datum_rezervacije, z.vreme_rezervacije,
+                           z.potvrdio, z.otkazano, z.token, p.ime as firma_ime
+                    FROM zakazivanja z
+                    JOIN preduzeca p ON z.ime_firme = p.id
+                    WHERE z.ime_firme = :firma_id
+                    ORDER BY z.id
                 """)
-            else:
-                # Ako zaposlenik menja, ne resetuj potvrdu
-                update_query = text("""
-                    UPDATE zakazivanja 
-                    SET 
-                        ime = :ime,
-                        email = :email,
-                        telefon = :telefon,
-                        datum_rezervacije = :datum_rezervacije,
-                        vreme_rezervacije = :vreme_rezervacije,
-                        usluga = :usluga,
-                        opis = :opis,
-                        ime_firme = :ime_firme
-                    WHERE token = :token
-                    RETURNING id, ime_firme, ime, email, telefon, datum_rezervacije, 
-                              vreme_rezervacije, usluga, opis
-                """)
-            
-            update_result = db.session.execute(update_query, {
-                'ime': podaci.get('ime') or podaci.get('email'),
-                'email': podaci.get('email'),
-                'telefon': podaci.get('telefon'),
-                'datum_rezervacije': datum_rezervacije,
-                'vreme_rezervacije': podaci.get('vreme') or podaci.get('vreme_rezervacije'),
-                'usluga': json.dumps(podaci.get('usluga', {})),
-                'opis': podaci.get('opis', ''),
-                'ime_firme': podaci.get('ime_firme') or ime_firme_id,
-                'token': token
-            }).fetchone()
-            
-            db.session.commit()
-            
-            # 4. Dohvati podatke o preduzeću
-            preduzece_query = text("SELECT ime FROM preduzeca WHERE id = :id")
-            preduzece_result = db.session.execute(preduzece_query, {'id': ime_firme_id}).fetchone()
-            preduzece_ime = preduzece_result[0] if preduzece_result else 'Preduzeće'
-            
-            # 5. Formatiraj datum i vreme za mejl
-            datum_i_vreme = f"{podaci.get('dan', stari_podaci.get('dan'))}.{int(podaci.get('mesec', stari_podaci.get('mesec'))) + 1}.{podaci.get('godina', stari_podaci.get('godina'))} u {podaci.get('vreme') or podaci.get('vreme_rezervacije')}"
-            
-            # 6. Utvrledi da li se lokacija promenila
-            nova_lokacija = podaci.get('lokacija') or podaci.get('ime_firme')
-            stara_lokacija = stari_podaci.get('lokacija') or stari_podaci.get('ime_firme')
-            lokacija_promenjena = nova_lokacija != stara_lokacija
-            
-            # 7. Slaj mejlove na osnovu tipa ulaska i što se promenilo
-            subject = f"Izmena termina - {preduzece_ime}"
-            
-            if not lokacija_promenjena:
-                # Ista lokacija
-                if tip_ulaska == 2:  # Korisnik menja
-                    poruka = f"""Poštovani,
-                    \nVaš termin je uspešno izmenjen za {datum_i_vreme}. Dobićete obaveštenje kada neko potvrdi vaš termin.
-                    \n Takođe možete izmeniti vreme i datum Vašeg termina na linku ispod. Nakon izmene očekujte ponovnu potvrdu.
-                    \n https://mojtermin.site/zakazi/{data.get('id')}/izmeni/{token}
-                    \n\nHvala što ste izabrali našu uslugu! Ovu uslugu je omogućio servis Moj Termin.
-                    """
-
-                    html_poruka = f"""
-                    <html>
-                        {html_head}
-                        <body>
-                            <div class="content">
-                            <h2>Poštovani,</h2>
-                            <p>Vaš termin je <b>uspešno izmenjen</b> za <b>{datum_i_vreme}</b>. Dobićete obaveštenje kada neko potvrdi vaš termin.</p>
-                            <p>Takođe možete izmeniti vreme i datum Vašeg termina. Nakon izmene očekujte ponovnu potvrdu.</p>
-                            <a href="https://mojtermin.site/zakazi/{data.get('id')}/izmeni/{token}" class="btn">Izmenite termin</a>
-                            <p style="margin-top: 20px;">Hvala što ste izabrali našu uslugu! Ovu uslugu je omogućio servis <b><a href="https://mojtermin.site">Moj Termin</a></b>.</p>
-                            </div>
-                        </body>
-                    </html>
-                    """
-                    
-                    try:
-                        send_confirmation_email(
-                            podaci.get('email'),
-                            poruka,
-                            subject,
-                            html_poruka
-                        )
-                    except Exception as email_error:
-                        print(f"❌ Greška pri slanju mejla korisniku: {str(email_error)}")
-                    
-                    if user_id is not None:
-                        try:
-                            send_email_to_workers(
-                                data.get('id'),
-                                nova_lokacija,
-                                'Izmena termina',
-                                token,
-                                nova_lokacija,
-                                preduzece_ime,
-                                datum_i_vreme,
-                                podaci.get('ime') or podaci.get('email'),
-                                stari_podaci
-                            )
-                        except Exception as worker_error:
-                            print(f"❌ Greška pri slanju mejla zaposlenima: {str(worker_error)}")
+                termini = db.session.execute(termini_query, {'firma_id': firma_id}).fetchall()
                 
-                else:  # Zaposleni menja (tip_ulaska != 2)
-                    poruka = f"""Poštovani,
-                    \nVaš termin u {preduzece_ime} je izmenio zaposlenik za {datum_i_vreme}.
-                    \nUkoliko Vam novo vreme termina ne odgovara, možete da izmeniti ili otkazati na linku ispod.
-                    \nhttps://mojtermin.site/zakazi/{data.get('id')}/izmeni/{token}
-                    \n Ukoliko menjate termin vreme termina, molimo Vas da ne zakazujete termin u vreme koje ste prvobitno odabrali.
-                    \n\nHvala što ste izabrali našu uslugu! Ovu uslugu je omogućio servis Moj Termin.
-                    """
+                for termin_row in termini:
+                    (termin_id, created_at, ime, email, telefon,
+                     usluga, opis, datum, vreme, potvrdio, otkazano, token, firma_ime_termin) = termin_row
                     
-                    html_poruka = f"""
-                    <html>
-                        {html_head}
-                        <body>
-                            <div class="content">
-                                <h2>Poštovani,</h2>
-                                <p>Vaš termin u {preduzece_ime} je izmenio zaposlenik za <b>{datum_i_vreme}</b>.</p>
-                                <p>Ukoliko Vam novo vreme termina ne odgovara, možete da izmenite ili otkazati na linku ispod.</p>
-                                <a href="https://mojtermin.site/zakazi/{data.get('id')}/izmeni/{token}" class="btn">Izmenite termin</a>
-                                <p style="margin-top: 20px;">Hvala što ste izabrali našu uslugu! Ovu uslugu je omogućio servis <b><a href="https://mojtermin.site">Moj Termin</a></b>.</p>
-                            </div>
-                        </body>
-                    </html>
-                    """
-
-                    try:
-                        send_confirmation_email(
-                            podaci.get('email'),
-                            poruka,
-                            subject,
-                            html_poruka
-                        )
-                    except Exception as email_error:
-                        print(f"❌ Greška pri slanju mejla: {str(email_error)}")
-            
-            else:
-                # Promena lokacije
-                if tip_ulaska == 2:  # Korisnik menja
-                    poruka = f"""Poštovani,
-                    \nVaš termin je uspešno izmenjen za {datum_i_vreme}. Dobićete obaveštenje kada neko potvrdi vaš termin.
-                    \n Takođe možete izmeniti vreme i datum Vašeg termina na linku ispod. Nakon izmene očekujte ponovnu potvrdu.
-                    \n https://mojtermin.site/zakazi/{data.get('id')}/izmeni/{token}
-                    \n\nHvala što ste izabrali našu uslugu! Ovu uslugu je omogućio servis Moj Termin.
-                    """
-
-                    html_poruka = f"""
-                    <html>
-                        {html_head}
-                        <body>
-                            <div class="content">
-                            <h2>Poštovani,</h2>
-                            <p>Vaš termin je <b>uspešno izmenjen</b> za <b>{datum_i_vreme}</b>. Dobićete obaveštenje kada neko potvrdi vaš termin.</p>
-                            <p>Takođe možete izmeniti vreme i datum Vašeg termina. Nakon izmene očekujte ponovnu potvrdu.</p>
-                            <a href="https://mojtermin.site/zakazi/{data.get('id')}/izmeni/{token}" class="btn">Izmenite termin</a>
-                            <p style="margin-top: 20px;">Hvala što ste izabrali našu uslugu! Ovu uslugu je omogućio servis <b><a href="https://mojtermin.site">Moj Termin</a></b>.</p>
-                            </div>
-                        </body>
-                    </html>
-                    """
+                    termin_data = {
+                        'created_at': str(created_at),
+                        'ime': ime,
+                        'email': email,
+                        'telefon': telefon,
+                        'usluga': usluga,
+                        'opis': opis,
+                        'datum_rezervacije': str(datum),
+                        'vreme_rezervacije': vreme,
+                        'potvrdio': potvrdio,
+                        'otkazano': otkazano,
+                        'token': token
+                    }
                     
-                    try:
-                        send_confirmation_email(
-                            podaci.get('email'),
-                            poruka,
-                            subject,
-                            html_poruka
-                        )
-                    except Exception as email_error:
-                        print(f"❌ Greška pri slanju mejla: {str(email_error)}")
-
-                    if user_id is not None:
-                        try:
-                            send_email_to_workers(  # Novoj lokaciji
-                                data.get('id'),
-                                nova_lokacija,
-                                'Izmena termina - nova lokacija',
-                                token,
-                                nova_lokacija,
-                                preduzece_ime,
-                                datum_i_vreme,
-                                podaci.get('ime') or podaci.get('email'),
-                                stari_podaci
-                            )
-                        except Exception as worker_error:
-                            print(f"❌ Greška pri slanju mejla zaposlenima (nova): {str(worker_error)}")
-                        
-                        try:
-                            send_email_to_workers(  # Staroj lokaciji
-                                data.get('id'),
-                                stara_lokacija,
-                                'Izmena termina na novu lokaciju',
-                                token,
-                                stara_lokacija,
-                                preduzece_ime,
-                                datum_i_vreme,
-                                podaci.get('ime') or podaci.get('email'),
-                                stari_podaci
-                            )
-                        except Exception as worker_error:
-                            print(f"❌ Greška pri slanju mejla zaposlenima (stara): {str(worker_error)}")
-                
-                else:  # Zaposleni menja
-                    if user_id is not None:
-                        try:
-                            send_email_to_workers(
-                                data.get('id'),
-                                nova_lokacija,
-                                'Izmena termina - nova lokacija',
-                                token,
-                                nova_lokacija,
-                                preduzece_ime,
-                                datum_i_vreme,
-                                podaci.get('ime') or podaci.get('email'),
-                                stari_podaci
-                            )
-                        except Exception as worker_error:
-                            print(f"❌ Greška pri slanju mejla zaposlenima (nova): {str(worker_error)}")
-                        
-                        try:
-                            send_email_to_workers(
-                                data.get('id'),
-                                stara_lokacija,
-                                'Izmena termina na novu lokaciju',
-                                token,
-                                stara_lokacija,
-                                preduzece_ime,
-                                datum_i_vreme,
-                                podaci.get('ime') or podaci.get('email'),
-                                stari_podaci
-                            )
-                        except Exception as worker_error:
-                            print(f"❌ Greška pri slanju mejla zaposlenima (stara): {str(worker_error)}")
+                    # Ako je potvrdio, pronađi ime usera
+                    if potvrdio:
+                        potvrdio_user = db.session.execute(
+                            text("SELECT username FROM users WHERE id = :id"),
+                            {'id': potvrdio}
+                        ).fetchone()
+                        termin_data['potvrdio_ime'] = potvrdio_user[0] if potvrdio_user else 'N/A'
+                    
+                    tekst = rag.format_termin_tip1_for_embedding(termin_data, firma_ime_termin)
+                    
+                    with embedding_limit:
+                        embedding = rag.generate_embedding(tekst)
+                    
+                    # VAŽNO: user_id je VLASNIK, ne zaposlenik!
+                    db.session.execute(insert_query, {
+                        'user_id': vlasnik_id,
+                        'firma_id': firma_id,
+                        'termin_id': termin_id,
+                        'tip_id': EmbeddingTypes.ZAPOSLEN,
+                        'tekst': tekst,
+                        'embedding': str(embedding)
+                    })
+                    
+                    count += 1
+            
+            if count % 100 == 0:
+                log_progress(f"✅ TIP 2 - Importovano {count} zapisa do sada")
         
-        return jsonify({
-            'status': 200,
-            'app_response': 'Zakazivanje uspešno izmenjeno',
-            'zakazi_id': zakaz_id
-        }), 200
-
+        db.session.commit()
+        log_progress(f"✅ TIP 2 - ZAPOSLEN import završen! Ukupno: {count} zapisa", "SUMMARY")
+        return count
+        
     except Exception as e:
-        print(f"❌ Greška u /api/zakazi/izmena: {str(e)}")
         db.session.rollback()
-        return jsonify({
-            'status': 500,
-            'error': str(e)
-        }), 500
+        log_progress(f"❌ Greška pri TIP 2 import-u: {str(e)}", "ERROR")
+        return 0
 
 
-@app.route('/api/potvrdi_termin', methods=['POST'])
-def potvrdiTermin():
+def batch_import_klijenti_tip3(limit=None):
     """
-    Potvrđuje zakazivanje i menja "potvrdio" polje sa ID-om korisnika koji potvrđuje.
-    Šalje mejl korisniku o potvrdi.
+    ========== TIP 3 - KLIJENT ==========
+    Red 1: Minimalne info vlasnika (ime_preduzeca, opis)
+    Red 2-N: Firma info (sve firme vlasnika)
+    Red N+1-M: Termin info SAMO sa (usluga, datum, vreme, ime_firme)
+    
+    Args:
+        limit (int): Limitiraj broj vlasnika (za test)
     """
+    log_progress("🔄 Počinjem import TIP 3 - KLIJENT", "START")
+    
+    rag = get_rag_manager()
+    count = 0
+    
     try:
-        data = request.json
-        termin = data.get('termin', {})
-        auth_token = data.get('authToken')
+        # Pronađi sve vlasniče
+        query = text("""
+            SELECT id, ime_preduzeca, opis
+            FROM users
+            WHERE zaposlen_u = 0
+            ORDER BY id
+        """)
+        if limit:
+            query = text(query.text + f" LIMIT {limit}")
         
-        termin_token = termin.get('token')
-        potvrdio_id = termin.get('potvrdio')
+        vlasnici = db.session.execute(query).fetchall()
+        log_progress(f"📊 Pronađeno {len(vlasnici)} vlasnika za TIP 3 import")
         
-        # Validacija
-        if not termin_token:
-            return jsonify({'error': 'Nedostaje token termina'}), 400
-        if not potvrdio_id:
-            return jsonify({'error': 'Nedostaje ID korisnika koji potvrđuje'}), 400
-        if not auth_token:
-            return jsonify({'error': 'Nedostaje authToken'}), 400
-        
-        with app.app_context():
-            # 1. Pronađi zakazivanje po tokenu i preuzmi podatke
-            find_query = text("""
-                SELECT id, email, ime, datum_rezervacije, vreme_rezervacije, ime_firme
-                FROM zakazivanja 
-                WHERE token = :token
-            """)
-            zakazivanje = db.session.execute(find_query, {'token': termin_token}).fetchone()
+        for vlasnik_row in vlasnici:
+            vlasnik_id, ime_preduzeca, opis = vlasnik_row
             
-            if not zakazivanje:
-                return jsonify({'error': 'Zakazivanje nije pronađeno'}), 404
-            
-            zakaz_id, email, ime, datum, vreme, ime_firme_id = zakazivanje
-            
-            # 2. Ažuriraj "potvrdio" polje
-            update_query = text("""
-                UPDATE zakazivanja 
-                SET potvrdio = :potvrdio
-                WHERE token = :token
-            """)
-            db.session.execute(update_query, {'potvrdio': potvrdio_id, 'token': termin_token})
-            db.session.commit()
-            
-            # 3. Dohvati podatke o korisniku koji potvrđuje
-            user_query = text("SELECT username FROM users WHERE id = :id")
-            user_result = db.session.execute(user_query, {'id': potvrdio_id}).fetchone()
-            username = user_result[0] if user_result else 'Zaposlenik'
-            
-            # 4. Dohvati podatke o firmi
-            firma_query = text("SELECT ime FROM preduzeca WHERE id = :id")
-            firma_result = db.session.execute(firma_query, {'id': ime_firme_id}).fetchone()
-            firma_ime = firma_result[0] if firma_result else 'Firmi'
-            
-            # 5. Formatiraj datum
-            date_parts = str(datum).split('-')
-            if len(date_parts) == 3:
-                godina, mesec, dan = date_parts[0], date_parts[1], date_parts[2]
-                datum_prikaz = f"{dan}.{mesec}.{godina} u {vreme}"
-            else:
-                datum_prikaz = f"{datum} u {vreme}"
-            
-            # 6. Pošalji mejl o potvrdi
-            poruka = f"""Poštovani,
-            \nVaš termin u {firma_ime} je potvrdio {username}.
-            \nTermin: {datum_prikaz}
-            \n\nHvala što ste izabrali našu uslugu! Ovu uslugu je omogućio servis Moj Termin.
-            """
-            
-            html_poruka = f"""
-            <html>
-                {html_head}
-                <body>
-                    <div class="content">
-                        <h2>Poštovani,</h2>
-                        <p>Vaš termin u <b>{firma_ime}</b> je <b>potvrdio {username}</b>.</p>
-                        <p><b>Termin:</b> {datum_prikaz}</p>
-                        <p style="margin-top: 20px;">Hvala što ste izabrali našu uslugu! Ovu uslugu je omogućio servis <b><a href="https://mojtermin.site">Moj Termin</a></b>.</p>
-                    </div>
-                </body>
-            </html>
-            """
-            
-            subject = f"Potvrda termina - {firma_ime}"
-            
-            try:
-                send_confirmation_email(email, poruka, subject, html_poruka)
-            except Exception as email_error:
-                print(f"❌ Greška pri slanju mejla o potvrdi: {str(email_error)}")
-        
-        return jsonify({
-            'status': 200,
-            'message': 'Termin uspešno potvrđen',
-            'zakazi_id': zakaz_id
-        }), 200
-
-    except Exception as e:
-        print(f"❌ Greška u /api/potvrdi_termin: {str(e)}")
-        db.session.rollback()
-        return jsonify({
-            'status': 500,
-            'error': str(e)
-        }), 500
-
-
-@app.route('/api/otkazi', methods=['PATCH'])
-def otkaziTermin():
-    """
-    Otkazuje zakazivanje i menja "otkazano" polje na true.
-    Šalje mejl korisniku o otkazivanju.
-    """
-    try:
-        data = request.json
-        token = data.get('token')
-        
-        # Validacija
-        if not token:
-            return jsonify({'error': 'Nedostaje token termina'}), 400
-        
-        with app.app_context():
-            # 1. Pronađi zakazivanje po tokenu i preuzmi podatke
-            find_query = text("""
-                SELECT id, email, ime, datum_rezervacije, vreme_rezervacije, ime_firme
-                FROM zakazivanja 
-                WHERE token = :token
-            """)
-            zakazivanje = db.session.execute(find_query, {'token': token}).fetchone()
-            
-            if not zakazivanje:
-                return jsonify({'error': 'Zakazivanje nije pronađeno'}), 404
-            
-            zakaz_id, email, ime, datum, vreme, ime_firme_id = zakazivanje
-            
-            # 2. Ažuriraj "otkazano" polje na true
-            update_query = text("""
-                UPDATE zakazivanja 
-                SET otkazano = true
-                WHERE token = :token
-            """)
-            db.session.execute(update_query, {'token': token})
-            db.session.commit()
-            
-            # 3. Dohvati podatke o firmi
-            firma_query = text("SELECT ime FROM preduzeca WHERE id = :id")
-            firma_result = db.session.execute(firma_query, {'id': ime_firme_id}).fetchone()
-            firma_ime = firma_result[0] if firma_result else 'Firmi'
-            
-            # 4. Formatiraj datum
-            date_parts = str(datum).split('-')
-            if len(date_parts) == 3:
-                godina, mesec, dan = date_parts[0], date_parts[1], date_parts[2]
-                datum_prikaz = f"{dan}.{mesec}.{godina} u {vreme}"
-            else:
-                datum_prikaz = f"{datum} u {vreme}"
-            
-            # 5. Pošalji mejl o otkazivanju
-            poruka = f"""Poštovani,
-            \nVaš termin u {firma_ime} za {datum_prikaz} je otkazan.
-            \nNaravno možete ponovo zakazati termin.
-            \n\nHvala što ste izabrali našu uslugu! Ovu uslugu je omogućio servis Moj Termin.
-            """
-            
-            html_poruka = f"""
-            <html>
-                {html_head}
-                <body>
-                    <div class="content">
-                        <h2>Poštovani,</h2>
-                        <p>Vaš termin u <b>{firma_ime}</b> za <b>{datum_prikaz}</b> je <b>otkazan</b>.</p>
-                        <p>Naravno možete ponovo zakazati termin.</p>
-                        <p style="margin-top: 20px;">Hvala što ste izabrali našu uslugu! Ovu uslugu je omogućio servis <b><a href="https://mojtermin.site">Moj Termin</a></b>.</p>
-                    </div>
-                </body>
-            </html>
-            """
-            
-            subject = f"Otkazivanje termina - {firma_ime}"
-            
-            try:
-                send_confirmation_email(email, poruka, subject, html_poruka)
-            except Exception as email_error:
-                print(f"❌ Greška pri slanju mejla o otkazivanju: {str(email_error)}")
-        
-        return jsonify({
-            'status': 200,
-            'message': 'Termin uspešno otkazan',
-            'zakazi_id': zakaz_id
-        }), 200
-
-    except Exception as e:
-        print(f"❌ Greška u /api/otkazi: {str(e)}")
-        db.session.rollback()
-        return jsonify({
-            'status': 500,
-            'error': str(e)
-        }), 500
-
-
-# AI RUTE >>>>>>>>>>>>>
-@app.route('/api/askAI', methods=['POST'])
-@jwt_required()
-def askAI_route():
-    """
-    Ruta koja koristi RAG sistem za pronalaženje relevantnih dokumenata
-    pa zatim poziva askAI funkciju sa kontekstom.
-    """
-    from ai.rag_manager import RAGManager
-    
-    data = request.json
-
-    # Validacija ulaznih podataka
-    auth_token = data.get('authToken')
-    poruke = data.get('poruke', [])
-    pitanje = data.get('pitanje')
-    user_id = data.get('userId')
-
-    if not auth_token:
-        return jsonify({'error': 'Nedostaje authToken'}), 400
-    if not pitanje:
-        return jsonify({'error': 'Nedostaje pitanje'}), 400
-    if not user_id:
-        return jsonify({'error': 'Nedostaje userId'}), 400
-
-    # ===== PROVERA AI LIMITACIJA =====
-    limit_result = check_and_increment_ai_usage(user_id, auth_token, db)
-    
-    if not limit_result['allowed']:
-        return jsonify({
-            'error': limit_result['error'],
-            'status': 'limit_exceeded'
-        }), 429  # Too Many Requests
-    
-    selected_model = limit_result['model']
-    print(f"✅ Odabrani model: {selected_model}")
-    # ===== KRAJ PROVERE LIMITACIJA =====
-
-    # ===== RAG RETRIEVAL - Pronađi relevantne dokumente =====
-    try:
-        rag = RAGManager(db)
-        
-        print(f"🔍 RAG retrieval za user_id={user_id}")
-        print(f"   Pitanje: '{pitanje[:60]}...'")
-        
-        # ===== RAZGRANIČAVANJE TIPOVA KORISNIKA =====
-        # Ako je prosleđen vlasnik_id u payload-u → to je KLIJENT koji zakazuje
-        # Ako nema vlasnik_id → to je VLASNIK ili ZAPOSLENIK (auto-detektovanje iz baze)
-        vlasnik_id_for_klijent = data.get('vlasnik_id')  # SAMO za klijente koji zakazuju
-        
-        if vlasnik_id_for_klijent:
-            print(f"👤 TIP: KLIJENT - vlasnik_id={vlasnik_id_for_klijent}")
-        else:
-            print(f"👤 TIP: VLASNIK ili ZAPOSLENIK - auto-detektovanje iz baze")
-        
-        relevant_docs = rag.retrieve_documents(
-            user_id=user_id,
-            pitanje=pitanje,
-            vlasnik_id_for_klijent=vlasnik_id_for_klijent,
-            k=6
-        )
-        
-        if not relevant_docs:
-            print("⚠️  Nema relevantnih dokumenata, koristi fallback")
-            # Fallback - koristi stari sistem ako nema embeddings-a
-            data_firme = get_ai_data_for_user(user_id, db)
-            if not data_firme:
-                return jsonify({'error': 'Korisnik nije pronađen'}), 404
-            kontekst = json.dumps(data_firme, indent=2, ensure_ascii=False)
-        else:
-            # Formatiraj kontekst iz relevantnih dokumenata
-            kontekst = rag.format_context(relevant_docs)
-            print(f"✅ Pronađeno {len(relevant_docs)} relevantnih dokumenata")
-        
-    except Exception as e:
-        print(f"❌ Greška pri RAG retrieval-u: {str(e)}")
-        return jsonify({'error': f'Greška pri pronalaženju podataka: {str(e)}'}), 500
-    # ===== KRAJ RAG RETRIEVAL-A =====
-
-    # Pozivanje askAI funkcije sa kontekstom
-    try:
-        # Novi format - kontekst umelo data_firme
-        odgovor = askAI(kontekst, poruke, pitanje, selected_model)
-        
-        return jsonify({
-            'status': 'success',
-            'odgovor': odgovor,
-            'model': selected_model,
-            'poruka': 'Odgovor uspešno generisan',
-            'rag_used': relevant_docs is not None and len(relevant_docs) > 0
-        }), 200
-
-    except Exception as e:
-        print(f"❌ Greška pri generisanju odgovora: {str(e)}")
-        return jsonify({
-            'error': 'Greška pri generisanju odgovora',
-            'details': str(e)
-        }), 500
-
-
-@app.route('/api/aiUsage', methods=['GET'])
-def get_ai_usage():
-    """
-    Vraća podatke o korišćenju AI za određeni dan.
-    Čita .json fajl iz ai/ai_usage/[owner_id]/[datum].json
-    
-    Query parametri:
-    - owner_id (obavezno): ID vlasnika
-    - date (opciono): Datum u formatu YYYY-MM-DD, ako nije prosleđen koristi se danasnnji datum
-    
-    Vraća:
-    - JSON sa strukturom:
-      {
-        "owner": {"llama3": 0, "llama4": 0},
-        "employees": {"llama3": 0, "llama4": 0},
-        "bookings": {"llama3": 0, "llama4": 0}
-      }
-    
-    Ako fajl ne postoji, vraća default values sa svim 0.
-    """
-    try:
-        owner_id = request.args.get('owner_id')
-        date = request.args.get('date', datetime.now().strftime('%Y-%m-%d'))
-        
-        if not owner_id:
-            return jsonify({'error': 'Nedostaje owner_id parametar'}), 400
-        
-        # Konstruiši putanju do fajla
-        file_path = f'ai/ai_usage/{owner_id}/{date}.json'
-        
-        # Provera da li fajl postoji
-        if os.path.exists(file_path):
-            try:
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    return jsonify(data), 200
-            except json.JSONDecodeError as e:
-                print(f"❌ Greška pri parsiranju JSON fajla {file_path}: {str(e)}")
-                return jsonify({'error': 'Invalid JSON file'}), 500
-            except Exception as e:
-                print(f"❌ Greška pri čitanju fajla {file_path}: {str(e)}")
-                return jsonify({'error': f'Greška pri čitanju fajla: {str(e)}'}), 500
-        else:
-            # Ako fajl ne postoji, vrati default vrednosti
-            default_data = {
-                "owner": {"llama3": 0, "llama4": 0},
-                "employees": {"llama3": 0, "llama4": 0},
-                "bookings": {"llama3": 0, "llama4": 0}
+            # ===== RED 1: Minimalne info vlasnika =====
+            user_data = {
+                'ime_preduzeca': ime_preduzeca,
+                'opis': opis
             }
-            return jsonify(default_data), 200
-    
-    except Exception as e:
-        print(f"❌ Greška u /api/aiUsage: {str(e)}")
-        return jsonify({'error': f'Server greška: {str(e)}'}), 500
-
-
-
-
-
-# ========== CHAT RUTE ==========
-
-@app.route('/api/chat/create', methods=['POST'])
-@jwt_required()
-def create_chat():
-    """
-    Kreira novi chat za korisnika
-    """
-    try:
-        data = request.json
-        user_id = data.get('userId')
-        auth_token = data.get('authToken')
-        title = data.get('title', 'Nova konverzacija')
-
-        if not user_id or not auth_token:
-            return jsonify({'error': 'Nedostaju userId i authToken'}), 400
-
-        result = create_new_chat(user_id, title)
-        return jsonify(result), 201
-
-    except Exception as e:
-        print(f"[ERROR] Greška pri kreiranju chata: {str(e)}")
-        return jsonify({'error': f'Server greška: {str(e)}'}), 500
-
-
-@app.route('/api/chat/<chat_id>', methods=['GET'])
-@jwt_required()
-def get_chat(chat_id):
-    """
-    Učitava specifičan chat
-    Samo kreator može pristupiti
-    """
-    try:
-        user_id = request.args.get('userId')
-        auth_token = request.args.get('authToken')
-
-        if not user_id or not auth_token:
-            return jsonify({'error': 'Nedostaju userId i authToken'}), 400
-
-        result = load_chat(user_id, chat_id)
+            
+            tekst = rag.format_vlasnik_info_tip3_for_embedding(user_data)
+            
+            with embedding_limit:
+                embedding = rag.generate_embedding(tekst)
+            
+            insert_query = text("""
+                INSERT INTO embeddings (user_id, firma_id, termin_id, tip_id, tekst, embedding)
+                VALUES (:user_id, :firma_id, :termin_id, :tip_id, :tekst, :embedding)
+                ON CONFLICT DO NOTHING
+            """)
+            
+            db.session.execute(insert_query, {
+                'user_id': vlasnik_id,
+                'firma_id': None,
+                'termin_id': None,
+                'tip_id': EmbeddingTypes.KLIJENT,
+                'tekst': tekst,
+                'embedding': str(embedding)
+            })
+            
+            count += 1
+            
+            # ===== RED 2-N: Firma info (sve firme vlasnika) =====
+            firme_query = text("""
+                SELECT id, ime, adresa, radno_vreme, cenovnik, overlapLimit
+                FROM preduzeca
+                WHERE vlasnik = :vlasnik_id
+            """)
+            firme = db.session.execute(firme_query, {'vlasnik_id': vlasnik_id}).fetchall()
+            
+            for firma_row in firme:
+                firma_id, ime, adresa, radno_vreme, cenovnik, overlapLimit = firma_row
+                
+                firma_data = {
+                    'ime': ime,
+                    'adresa': adresa,
+                    'radno_vreme': radno_vreme,
+                    'cenovnik': cenovnik,
+                    'overlapLimit': overlapLimit
+                }
+                
+                tekst = rag.format_firma_for_embedding(firma_data)
+                
+                with embedding_limit:
+                    embedding = rag.generate_embedding(tekst)
+                
+                db.session.execute(insert_query, {
+                    'user_id': vlasnik_id,
+                    'firma_id': firma_id,
+                    'termin_id': None,
+                    'tip_id': EmbeddingTypes.KLIJENT,
+                    'tekst': tekst,
+                    'embedding': str(embedding)
+                })
+                
+                count += 1
+                
+                # ===== RED N+1-M: Termini - SAMO usluga, datum, vreme, ime_firme =====
+                termini_query = text("""
+                    SELECT z.id, z.usluga, z.datum_rezervacije, z.vreme_rezervacije, p.ime as firma_ime
+                    FROM zakazivanja z
+                    JOIN preduzeca p ON z.ime_firme = p.id
+                    WHERE z.ime_firme = :firma_id
+                    ORDER BY z.id
+                """)
+                termini = db.session.execute(termini_query, {'firma_id': firma_id}).fetchall()
+                
+                for termin_row in termini:
+                    termin_id, usluga, datum, vreme, firma_ime_termin = termin_row
+                    
+                    termin_data = {
+                        'usluga': usluga,
+                        'datum_rezervacije': str(datum),
+                        'vreme_rezervacije': vreme
+                    }
+                    
+                    tekst = rag.format_termin_tip3_for_embedding(termin_data, firma_ime_termin)
+                    
+                    with embedding_limit:
+                        embedding = rag.generate_embedding(tekst)
+                    
+                    db.session.execute(insert_query, {
+                        'user_id': vlasnik_id,
+                        'firma_id': firma_id,
+                        'termin_id': termin_id,
+                        'tip_id': EmbeddingTypes.KLIJENT,
+                        'tekst': tekst,
+                        'embedding': str(embedding)
+                    })
+                    
+                    count += 1
+                
+                if count % 100 == 0:
+                    log_progress(f"✅ TIP 3 - Importovano {count} zapisa do sada")
         
-        if not result.get('success'):
-            return jsonify(result), 403
-
-        return jsonify(result), 200
-
+        db.session.commit()
+        log_progress(f"✅ TIP 3 - KLIJENT import završen! Ukupno: {count} zapisa", "SUMMARY")
+        return count
+        
     except Exception as e:
-        print(f"[ERROR] Greška pri učitavanju chata: {str(e)}")
-        return jsonify({'error': f'Server greška: {str(e)}'}), 500
+        db.session.rollback()
+        log_progress(f"❌ Greška pri TIP 3 import-u: {str(e)}", "ERROR")
+        return 0
 
 
-@app.route('/api/chats', methods=['GET'])
-@jwt_required()
-def list_chats():
-    """
-    Vraća sve chatove za trenutnog korisnika
-    """
-    try:
-        user_id = request.args.get('userId')
-        auth_token = request.args.get('authToken')
-
-        if not user_id or not auth_token:
-            return jsonify({'error': 'Nedostaju userId i authToken'}), 400
-
-        chats = get_user_chats(user_id)
-        return jsonify({'chats': chats}), 200
-
-    except Exception as e:
-        print(f"[ERROR] Greška pri učitavanju liste chatova: {str(e)}")
-        return jsonify({'error': f'Server greška: {str(e)}'}), 500
-
-
-@app.route('/api/chat/<chat_id>/message', methods=['POST'])
-@jwt_required()
-def add_message_to_chat(chat_id):
-    """
-    Dodaje poruku u chat i čuva je
-    """
-    try:
-        data = request.json
-        user_id = data.get('userId')
-        auth_token = data.get('authToken')
-        message_text = data.get('message')
-        sender = data.get('sender', 'user')
-
-        if not user_id or not auth_token or not message_text:
-            return jsonify({'error': 'Nedostaju obavezni podaci'}), 400
-
-        result = save_chat_message(user_id, chat_id, {
-            'text': message_text,
-            'sender': sender
-        })
-
-        if not result.get('success'):
-            return jsonify(result), 403
-
-        return jsonify(result), 200
-
-    except Exception as e:
-        print(f"[ERROR] Greška pri čuvanju poruke: {str(e)}")
-        return jsonify({'error': f'Server greška: {str(e)}'}), 500
+def main():
+    """Glavna funkcija - pokreni sve import tipove"""
+    
+    with app.app_context():
+        log_progress("=" * 60, "START")
+        log_progress("🚀 BATCH IMPORT EMBEDDINGS V2 - NOVA TIPOLOGIJA - POČINJEM", "START")
+        log_progress("=" * 60, "START")
+        
+        # Provera da postoji tabela embeddings
+        try:
+            db.session.execute(text("SELECT 1 FROM embeddings LIMIT 1"))
+        except:
+            log_progress("❌ Tabela embeddings ne postoji! Kreiraj je prvo sa SQL skriptom.", "ERROR")
+            return
+        
+        start_time = datetime.now()
+        
+        # Prvo OBRIŠI sve stare embeddings
+        log_progress("🔄 Brišem stare embeddings...", "INFO")
+        db.session.execute(text("DELETE FROM embeddings"))
+        db.session.commit()
+        log_progress("✅ Stari embeddings obrisani", "INFO")
+        
+        # Importuj sve tri tipologije
+        tip1_count = batch_import_vlasnici_tip1()
+        tip2_count = batch_import_zaposleni_tip2()
+        tip3_count = batch_import_klijenti_tip3()
+        
+        total_count = tip1_count + tip2_count + tip3_count
+        elapsed = datetime.now() - start_time
+        
+        log_progress("=" * 60, "SUMMARY")
+        log_progress(f"✅ IMPORT ZAVRŠEN!", "SUMMARY")
+        log_progress(f"   • TIP 1 (VLASNIK): {tip1_count} zapisa", "SUMMARY")
+        log_progress(f"   • TIP 2 (ZAPOSLEN): {tip2_count} zapisa", "SUMMARY")
+        log_progress(f"   • TIP 3 (KLIJENT): {tip3_count} zapisa", "SUMMARY")
+        log_progress(f"   • UKUPNO: {total_count} embeddings-a", "SUMMARY")
+        log_progress(f"   • Vreme: {elapsed.total_seconds():.1f} sekundi", "SUMMARY")
+        log_progress("=" * 60, "SUMMARY")
 
 
-@app.route('/api/chat/<chat_id>', methods=['DELETE'])
-@jwt_required()
-def delete_chat_route(chat_id):
-    """
-    Briše chat (samo kreator može)
-    """
-    try:
-        data = request.json
-        user_id = data.get('userId')
-        auth_token = data.get('authToken')
-
-        if not user_id or not auth_token:
-            return jsonify({'error': 'Nedostaju userId i authToken'}), 400
-
-        result = delete_chat(user_id, chat_id)
-
-        if not result.get('success'):
-            return jsonify(result), 403
-
-        return jsonify(result), 200
-
-    except Exception as e:
-        print(f"[ERROR] Greška pri brisanju chata: {str(e)}")
-        return jsonify({'error': f'Server greška: {str(e)}'}), 500
-
-
-@app.route('/api/chat/<chat_id>/rename', methods=['PATCH'])
-@jwt_required()
-def rename_chat_route(chat_id):
-    """
-    Preimenovava chat (samo kreator može)
-    """
-    try:
-        data = request.json
-        user_id = data.get('userId')
-        auth_token = data.get('authToken')
-        new_title = data.get('title')
-
-        if not user_id or not auth_token or not new_title:
-            return jsonify({'error': 'Nedostaju obavezni podaci'}), 400
-
-        result = rename_chat(user_id, chat_id, new_title)
-
-        if not result.get('success'):
-            return jsonify(result), 403
-
-        return jsonify(result), 200
-
-    except Exception as e:
-        print(f"[ERROR] Greška pri preimenovanju chata: {str(e)}")
-        return jsonify({'error': f'Server greška: {str(e)}'}), 500
-
-
-
-
-
-
-
-# Pokretanje aplikacije
-if __name__ == '__main__':
-    app.run(debug=True)
+if __name__ == "__main__":
+    main()
