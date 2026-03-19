@@ -100,7 +100,7 @@ def batch_import_vlasnici_tip1(limit=None):
                 'termin_id': None,
                 'tip_id': EmbeddingTypes.VLASNIK,
                 'tekst': tekst,
-                'embedding': str(embedding)
+                'embedding': embedding
             })
             
             count += 1
@@ -135,7 +135,7 @@ def batch_import_vlasnici_tip1(limit=None):
                     'termin_id': None,
                     'tip_id': EmbeddingTypes.VLASNIK,
                     'tekst': tekst,
-                    'embedding': str(embedding)
+                    'embedding': embedding
                 })
                 
                 count += 1
@@ -189,7 +189,7 @@ def batch_import_vlasnici_tip1(limit=None):
                         'termin_id': termin_id,
                         'tip_id': EmbeddingTypes.VLASNIK,
                         'tekst': tekst,
-                        'embedding': str(embedding)
+                        'embedding': embedding
                     })
                     
                     count += 1
@@ -270,7 +270,7 @@ def batch_import_zaposleni_tip2(limit=None):
                 'termin_id': None,
                 'tip_id': EmbeddingTypes.ZAPOSLEN,
                 'tekst': tekst,
-                'embedding': str(embedding)
+                'embedding': embedding
             })
             
             count += 1
@@ -303,7 +303,7 @@ def batch_import_zaposleni_tip2(limit=None):
                     'termin_id': None,
                     'tip_id': EmbeddingTypes.ZAPOSLEN,
                     'tekst': tekst,
-                    'embedding': str(embedding)
+                    'embedding': embedding
                 })
                 
                 count += 1
@@ -363,7 +363,7 @@ def batch_import_zaposleni_tip2(limit=None):
                         'termin_id': termin_id,
                         'tip_id': EmbeddingTypes.ZAPOSLEN,
                         'tekst': tekst,
-                        'embedding': str(embedding)
+                        'embedding': embedding
                     })
                     
                     count += 1
@@ -436,7 +436,7 @@ def batch_import_klijenti_tip3(limit=None):
                 'termin_id': None,
                 'tip_id': EmbeddingTypes.KLIJENT,
                 'tekst': tekst,
-                'embedding': str(embedding)
+                'embedding': embedding
             })
             
             count += 1
@@ -471,7 +471,7 @@ def batch_import_klijenti_tip3(limit=None):
                     'termin_id': None,
                     'tip_id': EmbeddingTypes.KLIJENT,
                     'tekst': tekst,
-                    'embedding': str(embedding)
+                    'embedding': embedding
                 })
                 
                 count += 1
@@ -506,7 +506,7 @@ def batch_import_klijenti_tip3(limit=None):
                         'termin_id': termin_id,
                         'tip_id': EmbeddingTypes.KLIJENT,
                         'tekst': tekst,
-                        'embedding': str(embedding)
+                        'embedding': embedding
                     })
                     
                     count += 1
