@@ -34,7 +34,7 @@ def get_user_type(user_id, owner_id):
         return "employees"
 
 
-def get_ai_info(user_id, auth_token, db):
+def get_ai_info(user_id, db):
     """
     Dohvata kompletan ai_info objekat iz baze podataka.
     
