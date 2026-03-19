@@ -21,9 +21,9 @@ def get_model():
     """Vrati cache-irani model"""
     global _model
     if _model is None:
-        # Koristi model sa 512 dimenzija za multilingvalne embeddings
-        _model = SentenceTransformer('distiluse-base-multilingual-cased-v2')
-        logger.info("✅ Multilingual model učitan (512 dimenzije)")
+        # Koristi optimizovani multilingual paraphrase model - bolji za srpski
+        _model = SentenceTransformer('sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2')
+        logger.info("✅ Paraphrase multilingual model učitan (384 dimenzije - optimizovan za srpski)")
     return _model
 
 def preload_model():
@@ -272,30 +272,22 @@ class RAGManager:
     def format_vlasnik_tip1_for_embedding(self, user_data):
         """
         Formatiraj podatke VLASNIKA za embedding (TIP 1 - Red 1)
+        CHUNK OPTIMIZATION: Kompaktan, fokusiran tekst
         
         Args:
-            user_data (dict): {username, email, brTel, paket, istek_pretplate, ime_preduzeca, opis, paket_limits}
+            user_data (dict): {username, email, brTel, paket, ime_preduzeca}
             
         Returns:
-            str: Formatiran tekst
+            str: Formatiran tekst (kompaktan)
         """
-        paket_limits = user_data.get('paket_limits', {})
-        if isinstance(paket_limits, str):
-            paket_limits = json.loads(paket_limits)
+        username = user_data.get('username', 'N/A')
+        ime_preduzeca = user_data.get('ime_preduzeca', 'N/A')
+        email = user_data.get('email', 'N/A')
+        brTel = user_data.get('brTel', 'N/A')
+        paket = user_data.get('paket', 'N/A')
         
-        limits_str = ""
-        if paket_limits:
-            limits_str = "\nLimitacije paketa:\n"
-            for key, value in paket_limits.items():
-                limits_str += f"  {key}: {value}\n"
-        
-        tekst = f"""Vlasnik: {user_data.get('username', 'N/A')}
-Email: {user_data.get('email', 'N/A')}
-Telefon: {user_data.get('brTel', 'N/A')}
-Paket: {user_data.get('paket', 'N/A')}
-Istek pretplate: {user_data.get('istek_pretplate', 'N/A')}
-Moje preduzeće: {user_data.get('ime_preduzeca', 'N/A')}
-Opis: {user_data.get('opis', 'N/A')}{limits_str}"""
+        # Kompaktan format - fokusirano na ključne informacije
+        tekst = f"Vlasnik: {username} | Preduzeće: {ime_preduzeca} | Email: {email} | Telefon: {brTel} | Paket: {paket}"
         return tekst.strip()
     
     # ============================================================
@@ -305,87 +297,55 @@ Opis: {user_data.get('opis', 'N/A')}{limits_str}"""
     def format_firma_for_embedding(self, firma_data):
         """
         Formatiraj podatke FIRME za embedding (koristi se za TIP 1, 2, 3)
+        CHUNK OPTIMIZATION: Kompaktan, fokusiran tekst
         
         Args:
-            firma_data (dict): {ime, adresa, cenovnik, radno_vreme, overlapLimit}
+            firma_data (dict): {ime, adresa, overlapLimit}
             
         Returns:
-            str: Formatiran tekst
+            str: Formatiran tekst (kompaktan)
         """
-        radno_vreme = firma_data.get('radno_vreme', {})
-        if isinstance(radno_vreme, str):
-            radno_vreme = json.loads(radno_vreme)
+        ime = firma_data.get('ime', 'N/A')
+        adresa = firma_data.get('adresa', 'N/A')
+        overlapLimit = firma_data.get('overlapLimit', 'N/A')
         
-        cenovnik = firma_data.get('cenovnik', {})
-        if isinstance(cenovnik, str):
-            cenovnik = json.loads(cenovnik)
-        
-        # Format radno vreme
-        vreme_str = ""
-        if radno_vreme:
-            vreme_str = "\nRadno vreme:\n"
-            for dan, vreme in radno_vreme.items():
-                vreme_str += f"  {dan}: {vreme}\n"
-        
-        # Format cenovnik
-        cenovnik_str = ""
-        if cenovnik:
-            cenovnik_str = "\nCenovnik:\n"
-            if isinstance(cenovnik, dict):
-                for usluga, cena in cenovnik.items():
-                    cenovnik_str += f"  {usluga}: {cena} din\n"
-            elif isinstance(cenovnik, list):
-                for item in cenovnik:
-                    if isinstance(item, dict):
-                        usluga = item.get('usluga', 'N/A')
-                        cena = item.get('cena', 'N/A')
-                        cenovnik_str += f"  {usluga}: {cena} din\n"
-        
-        tekst = f"""Firma: {firma_data.get('ime', 'N/A')}
-Adresa: {firma_data.get('adresa', 'N/A')}
-Kapacitet (overlap limit): {firma_data.get('overlapLimit', 'N/A')}{vreme_str}{cenovnik_str}"""
+        # Kompaktan format - samo ključne informacije
+        tekst = f"Firma: {ime} | Adresa: {adresa} | Kapacitet: {overlapLimit}"
         return tekst.strip()
     
     def format_termin_tip1_for_embedding(self, termin_data, firma_ime=None):
         """
         Formatiraj podatke TERMINA za embedding - VLASNIK/ZAPOSLEN
-        Koristi se za TIP 1 (Red x-y) i TIP 2 (Red 3-x)
+        CHUNK OPTIMIZATION: Kompaktan, fokusiran tekst
         
         Args:
-            termin_data (dict): {created_at, ime, email, telefon, usluga, opis, 
-                                 datum_rezervacije, vreme_rezervacije, potvrdio, otkazano, token}
+            termin_data (dict): {ime, usluga, datum_rezervacije, vreme_rezervacije, potvrdio}
             firma_ime (str): Naziv firme (iz preduzeca tabele)
             
         Returns:
-            str: Formatiran tekst
+            str: Formatiran tekst (kompaktan)
         """
+        usluga_text = termin_data.get('usluga', 'N/A')
+        if isinstance(usluga_text, str):
+            try:
+                usluga_dict = json.loads(usluga_text)
+                usluga_text = usluga_dict.get('naziv', 'N/A')
+            except:
+                pass
+        
         status = "Potvrđen" if termin_data.get('potvrdio') else "Čeka potvrdu"
-        otkazano = "DA - OTKAZANO" if termin_data.get('otkazano') else "NE"
+        klijent = termin_data.get('ime', 'N/A')
+        datum = termin_data.get('datum_rezervacije', 'N/A')
+        vreme = termin_data.get('vreme_rezervacije', 'N/A')
         
-        usluga = termin_data.get('usluga', {})
-        if isinstance(usluga, str):
-            usluga = json.loads(usluga)
-        
-        # Ako postoji potvrdio, uključi ime korisnika koji je potvrdio
-        potvrdio_str = ""
-        if termin_data.get('potvrdio'):
-            potvrdio_str = f"Potvrdio: {termin_data.get('potvrdio_ime', 'N/A')}\n"
-        
-        tekst = f"""Zakazivanje - Firma: {firma_ime or 'N/A'}
-Datum: {termin_data.get('datum_rezervacije', 'N/A')}
-Vreme: {termin_data.get('vreme_rezervacije', 'N/A')}
-Klijent: {termin_data.get('ime', 'N/A')}
-Email: {termin_data.get('email', 'N/A')}
-Telefon: {termin_data.get('telefon', 'N/A')}
-Usluga: {json.dumps(usluga, ensure_ascii=False)}
-Opis: {termin_data.get('opis', 'N/A')}
-Status: {status}
-{potvrdio_str}Otkazano: {otkazano}"""
+        # Kompaktan format - usluga, firma, datum, vrijeme, klijent
+        tekst = f"Termin: {usluga_text} | Firma: {firma_ime or 'N/A'} | {datum} {vreme} | Klijent: {klijent} | Status: {status}"
         return tekst.strip()
     
     def format_termin_tip3_for_embedding(self, termin_data, firma_ime=None):
         """
         Formatiraj podatke TERMINA za embedding - KLIJENT
+        CHUNK OPTIMIZATION: Kompaktan, fokusiran tekst
         Koristi se za TIP 3 (Red x-y) - samo USLUGA, DATUM, VREME, IME_FIRME
         
         Args:
@@ -393,16 +353,21 @@ Status: {status}
             firma_ime (str): Naziv firme (iz preduzeca tabele)
             
         Returns:
-            str: Formatiran tekst
+            str: Formatiran tekst (kompaktan)
         """
-        usluga = termin_data.get('usluga', {})
-        if isinstance(usluga, str):
-            usluga = json.loads(usluga)
+        usluga_text = termin_data.get('usluga', 'N/A')
+        if isinstance(usluga_text, str):
+            try:
+                usluga_dict = json.loads(usluga_text)
+                usluga_text = usluga_dict.get('naziv', 'N/A')
+            except:
+                pass
         
-        tekst = f"""Zakazani termin - Firma: {firma_ime or 'N/A'}
-Usluga: {json.dumps(usluga, ensure_ascii=False)}
-Datum: {termin_data.get('datum_rezervacije', 'N/A')}
-Vreme: {termin_data.get('vreme_rezervacije', 'N/A')}"""
+        datum = termin_data.get('datum_rezervacije', 'N/A')
+        vreme = termin_data.get('vreme_rezervacije', 'N/A')
+        
+        # Kompaktan format
+        tekst = f"Termin: {usluga_text} - Firma: {firma_ime or 'N/A'} | {datum} {vreme}"
         return tekst.strip()
     
     # ============================================================
@@ -412,18 +377,21 @@ Vreme: {termin_data.get('vreme_rezervacije', 'N/A')}"""
     def format_zaposlen_tip2_for_embedding(self, user_data, firma_ime=None):
         """
         Formatiraj podatke ZAPOSLENIKA za embedding (TIP 2 - Red 1)
+        CHUNK OPTIMIZATION: Kompaktan, fokusiran tekst
         
         Args:
             user_data (dict): {username, email, brTel}
             firma_ime (str): Naziv firme gdje radi
             
         Returns:
-            str: Formatiran tekst
+            str: Formatiran tekst (kompaktan)
         """
-        tekst = f"""Zaposlenik: {user_data.get('username', 'N/A')}
-Email: {user_data.get('email', 'N/A')}
-Telefon: {user_data.get('brTel', 'N/A')}
-Radi u firmi: {firma_ime or 'N/A'}"""
+        username = user_data.get('username', 'N/A')
+        email = user_data.get('email', 'N/A')
+        firma = firma_ime or 'N/A'
+        
+        # Kompaktan format
+        tekst = f"Zaposlenik: {username} | Firma: {firma} | Email: {email}"
         return tekst.strip()
     
     # ============================================================
@@ -433,15 +401,18 @@ Radi u firmi: {firma_ime or 'N/A'}"""
     def format_vlasnik_info_tip3_for_embedding(self, user_data):
         """
         Formatiraj datos VLASNIKA za embedding - KLIJENT (TIP 3 - Red 1)
+        CHUNK OPTIMIZATION: Kompaktan, fokusiran tekst
         Samo: ime_preduzeca, opis
         
         Args:
             user_data (dict): {ime_preduzeca, opis}
             
         Returns:
-            str: Formatiran tekst
+            str: Formatiran tekst (kompaktan)
         """
-        tekst = f"""Preduzeće: {user_data.get('ime_preduzeca', 'N/A')}
-Opis: {user_data.get('opis', 'N/A')}"""
+        ime = user_data.get('ime_preduzeca', 'N/A')
+        opis = user_data.get('opis', 'N/A')
+        # Kompaktan format
+        tekst = f"Preduzeće: {ime} | {opis}"
         return tekst.strip()
 
