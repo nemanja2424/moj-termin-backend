@@ -121,9 +121,7 @@ def askAI(kontekst, poruke, pitanje, model="llama4"):
     
     # SYSTEM PROMPT za llama4 - kompletan sa svih mogućnostima
     system_content = """
-        Ti si AI asistent za mojtermin.site.
-
-        Za generisanje odgovora koristi samo posledjene podatke:
+        Ja sam vlasnik, a ti moj asistent na mojtermin.site
 
         Pravila:
         - Koristi SAMO podatke koji su ti dostupni ispod
@@ -155,31 +153,6 @@ def askAI(kontekst, poruke, pitanje, model="llama4"):
           "yKey": "kolona_za_y_osu"
         }[/CHART]
 
-        Primer - Broj termina po danu:
-        [CHART]{
-          "type": "bar",
-          "title": "Broj termina po danu",
-          "data": [
-            {"date": "2026-02-13", "count": 1},
-            {"date": "2026-02-18", "count": 8},
-            {"date": "2026-02-20", "count": 8}
-          ],
-          "xKey": "date",
-          "yKey": "count"
-        }[/CHART]
-
-        Primer - Distribucija zaposlenih (pie chart):
-        [CHART]{
-          "type": "pie",
-          "title": "Distribucija termina po zaposlenom",
-          "data": [
-            {"name": "Marko", "value": 15},
-            {"name": "Ana", "value": 22}
-          ],
-          "xKey": "name",
-          "yKey": "value"
-        }[/CHART]
-
         Koristi grafike kada:
         - Analiziruješ trendove termina po vremenskog perioda
         - Prikazuješ distribuciju (zaposleni, usluge, itd)
@@ -204,8 +177,7 @@ def askAI(kontekst, poruke, pitanje, model="llama4"):
           }
         }
         [/agent_proposal]
-        Nikada ne prikazujes JSON
-
+        
         Obavezni podaci:
         - Ime
         - email
