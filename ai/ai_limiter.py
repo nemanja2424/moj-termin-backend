@@ -2,6 +2,7 @@ import json
 import os
 from datetime import datetime
 import requests
+from sqlalchemy import text
 
 
 def get_owner_id_from_user(user_id, ai_info_data):
@@ -229,11 +230,14 @@ def check_and_select_model(user_type, limits, usage, llm_switch):
     }
 
 
-def check_and_increment_ai_usage(user_id, db):
+def check_and_increment_ai_usage(user_id, rola, db):
     """
     Glavna funkcija koja:
-    1. Dohvata ai_info iz baze (sadrži "id" vlasnika i "ai_info" strukturu)
-    2. Određuje tip korisnika (owner ili employee)
+    1. Odredi owner_id na osnovu role:
+       - rola=1 (VLASNIK): owner_id = user_id
+       - rola=2 (ZAPOSLENIK): owner_id = vlasnik od firme gde radi (iz zaposlen_u)
+       - rola=3 (ZAKAZIVAC): owner_id treba iz payload-a, ovde pretpostavljamo da je prosleđen
+    2. Dohvata ai_info iz baze
     3. Dohvata dnevnu upotrebu vlasnika
     4. Proverava limite
     5. Određuje model
@@ -248,8 +252,47 @@ def check_and_increment_ai_usage(user_id, db):
     }
     """
     
-    # Dohvati ai_info iz baze (sadrži "id" i "ai_info")
-    ai_info_data = get_ai_info(user_id, db)
+    # KORAK 1: Odredi owner_id na osnovu role
+    owner_id = user_id  # Default
+    user_type = "owner"  # Default
+    
+    if rola == 1:
+        # VLASNIK - owner_id je sam user_id
+        owner_id = user_id
+        user_type = "owner"
+        print(f"👑 VLASNIK (rola={rola}): owner_id={owner_id}")
+    
+    elif rola == 2:
+        # ZAPOSLENIK - pronađi vlasnika firme gde radi
+        try:
+            zaposlenik_query = text("SELECT zaposlen_u FROM users WHERE id = :id")
+            zaposlenik_result = db.session.execute(zaposlenik_query, {'id': int(user_id)}).fetchone()
+            
+            if zaposlenik_result and zaposlenik_result[0] > 0:
+                firma_id = zaposlenik_result[0]
+                
+                # Pronađi vlasnika te firme
+                firma_query = text("SELECT vlasnik FROM preduzeca WHERE id = :id")
+                firma_result = db.session.execute(firma_query, {'id': int(firma_id)}).fetchone()
+                
+                if firma_result:
+                    owner_id = firma_result[0]
+                    user_type = "employees"
+                    print(f"👤 ZAPOSLENIK (rola={rola}): firma_id={firma_id}, owner_id={owner_id}")
+        except Exception as e:
+            print(f"❌ Greška pri pronalaženju vlasnika: {str(e)}")
+            owner_id = user_id
+    
+    elif rola == 3:
+        # ZAKAZIVAC - usage ide vlasniku firme u kojoj se zakazuje
+        # owner_id bi trebalo biti u payload-u kao vlasnik_id
+        # Za sada, koristi user_id
+        owner_id = user_id
+        user_type = "bookings"
+        print(f"📅 ZAKAZIVAC (rola={rola}): owner_id={owner_id}")
+    
+    # KORAK 2: Dohvati ai_info iz baze za vlasnika
+    ai_info_data = get_ai_info(owner_id, db)
     if not ai_info_data:
         return {
             "allowed": False,
@@ -257,24 +300,20 @@ def check_and_increment_ai_usage(user_id, db):
             "error": "Nije moguće dohvatiti AI informacije"
         }
     
-    # Ekstraktuj owner_id (ID vlasnika) i ai_info strukturu
-    owner_id = get_owner_id_from_user(user_id, ai_info_data)
     ai_info = ai_info_data.get('ai_info', {})
-    
-    # Određuj tip korisnika
-    user_type = get_user_type(user_id, owner_id)
     
     # Ekstraktuj limite i llm-switch
     limits = ai_info.get('limits', {})
     llm_switch = ai_info.get('llm-switch', 'default')
     
-    # Dohvati dnevnu upotrebu vlasnika
+    # KORAK 3: Dohvati dnevnu upotrebu vlasnika
     daily_usage = get_daily_usage(owner_id)
     
     # DEBUG ispis
     print(f"\n📋 DEBUG - AI LIMITER INFO:")
-    print(f"  user_id: {user_id}, owner_id: {owner_id}")
-    print(f"  user_type: {user_type}")
+    print(f"  original_user_id: {user_id}, rola: {rola}")
+    print(f"  owner_id (gde se piše usage): {owner_id}")
+    print(f"  user_type (tip limitacije): {user_type}")
     print(f"  llm_switch: {llm_switch}")
     user_limits = limits.get(user_type, {})
     user_usage = daily_usage.get(user_type, {})
@@ -282,7 +321,7 @@ def check_and_increment_ai_usage(user_id, db):
     print(f"  usage[{user_type}]: {user_usage}")
     print()
     
-    # Proveri i odaberi model
+    # KORAK 4: Proveri i odaberi model
     result = check_and_select_model(user_type, limits, daily_usage, llm_switch)
     
     if result["allowed"]:
@@ -293,7 +332,7 @@ def check_and_increment_ai_usage(user_id, db):
         # Čuva u JSON vlasniku (owner_id)
         save_daily_usage(owner_id, daily_usage)
         
-        user_type_label = "Vlasnik" if user_type == "owner" else "Zaposlenik"
-        print(f"✅ AI usage inkrementiran: {user_type_label}/{model} (owner_id: {owner_id}, user_id: {user_id})")
+        user_type_label = {"owner": "Vlasnik", "employees": "Zaposlenik", "bookings": "Zakazivač"}.get(user_type, "Korisnik")
+        print(f"✅ AI usage inkrementiran: {user_type_label}/{model} (owner_id: {owner_id}, original_user_id: {user_id})")
     
     return result

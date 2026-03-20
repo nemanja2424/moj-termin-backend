@@ -907,6 +907,7 @@ def askAI_route():
     poruke = data.get('poruke', [])
     pitanje = data.get('pitanje')
     user_id = data.get('userId')
+    rola = data.get('rola', 1)  # Default: 1=vlasnik
 
     if not pitanje:
         return jsonify({'error': 'Nedostaje pitanje'}), 400
@@ -914,7 +915,7 @@ def askAI_route():
         return jsonify({'error': 'Nedostaje userId'}), 400
 
     # ===== PROVERA AI LIMITACIJA =====
-    limit_result = check_and_increment_ai_usage(user_id, db)
+    limit_result = check_and_increment_ai_usage(user_id, rola, db)
     
     if not limit_result['allowed']:
         return jsonify({
