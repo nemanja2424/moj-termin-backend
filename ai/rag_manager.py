@@ -21,9 +21,9 @@ def get_model():
     """Vrati cache-irani model"""
     global _model
     if _model is None:
-        # Koristi BERTic - specijalizovan za srpski
-        _model = SentenceTransformer('EMBEDDIA/sloberta')
-        logger.info("✅ BERTic model učitan - optimizovan za srpski jezik")
+        # Koristi paraphrase multilingual mpnet - 768 dimenzija, odličan za srpski
+        _model = SentenceTransformer('sentence-transformers/paraphrase-multilingual-mpnet-base-v2')
+        logger.info("✅ Paraphrase MPNet model učitan (768 dimenzije - optimizovan za srpski)")
     return _model
 
 def preload_model():

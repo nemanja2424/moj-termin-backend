@@ -10,3 +10,6 @@ together==2.4.0
 APScheduler==3.10.4
 sentence-transformers>=2.2.2
 pgvector>=0.1.6
+protobuf>=7.34.0
+torch>=2.0.0
+transformers>=4.30.0
