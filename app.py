@@ -1041,7 +1041,7 @@ def get_ai_usage():
             
             # Ako je NULL ili prazan, vrati default
             if not ai_usage:
-                print(f"⚠️  ai_usage je NULL za korisnika {owner_id}")
+                #print(f"⚠️  ai_usage je NULL za korisnika {owner_id}")
                 return jsonify(default_data), 200
             
             # Ako je već dict (iz JSONB), vrati ga

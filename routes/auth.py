@@ -350,7 +350,8 @@ def get_user_profile(user_id):
                     vlasnik_res = db.session.execute(vlasnik_query, {'preduzece_id': preduzeca[0]['id']}).fetchone()
                     
                     if vlasnik_res:
-                        vlasnik_info_res = db.session.execute(korisnik_query, {'id': vlasnik_res[0]}).fetchone()
+                        vlasnik_info_query = text("SELECT username, email FROM users WHERE id = :id")
+                        vlasnik_info_res = db.session.execute(vlasnik_info_query, {'id': vlasnik_res[0]}).fetchone()
                         if vlasnik_info_res:
                             vlasnik_info = {
                                 "id": vlasnik_res[0],

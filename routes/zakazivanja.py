@@ -32,6 +32,7 @@ def get_zakazivanja(id):
             zakazano_list = []
             
             if rola == 1:  # Vlasnik
+                vlasnik_id = id
                 # Dohvati sve lokacije vlasnika
                 preduzeca_query = text("""
                     SELECT id, ime, adresa FROM preduzeca WHERE vlasnik = :vlasnik_id
@@ -138,19 +139,8 @@ def get_zakazivanja(id):
                                     "created_at": potvrdio_result[1],
                                     "username": potvrdio_result[2],
                                     "email": potvrdio_result[3],
-                                    "brTel": potvrdio_result[4],
                                     "rola": potvrdio_result[5],
-                                    "paket": potvrdio_result[6],
                                     "zaposlen_u": potvrdio_result[7],
-                                    "istek_pretplate": str(potvrdio_result[8]) if potvrdio_result[8] else None,
-                                    "ime_preduzeca": potvrdio_result[9],
-                                    "putanja_za_logo": potvrdio_result[10],
-                                    "radnoVreme": radnoVreme,
-                                    "cenovnik": cenovnik,
-                                    "forma": forma,
-                                    "ai_info": ai_info,
-                                    "opis": potvrdio_result[15],
-                                    "paket_limits": paket_limits
                                 }
                         
                         lokacija_termini.append(termin_data)
@@ -161,7 +151,7 @@ def get_zakazivanja(id):
                 # Dohvati lokaciju gde je zaposlen
                 if zaposlen_u:
                     preduzeca_query = text("""
-                        SELECT id, ime, adresa FROM preduzeca WHERE id = :preduzece_id
+                        SELECT id, ime, adresa, vlasnik FROM preduzeca WHERE id = :preduzece_id
                     """)
                     preduzeca_result = db.session.execute(preduzeca_query, {'preduzece_id': zaposlen_u}).fetchone()
                     
@@ -171,6 +161,8 @@ def get_zakazivanja(id):
                             "ime": preduzeca_result[1],
                             "adresa": preduzeca_result[2]
                         })
+
+                        vlasnik_id = preduzeca_result[3]
                         
                         # Dohvati sve termine za tu lokaciju
                         termini_query = text("""
@@ -261,19 +253,8 @@ def get_zakazivanja(id):
                                         "created_at": potvrdio_result[1],
                                         "username": potvrdio_result[2],
                                         "email": potvrdio_result[3],
-                                        "brTel": potvrdio_result[4],
                                         "rola": potvrdio_result[5],
-                                        "paket": potvrdio_result[6],
                                         "zaposlen_u": potvrdio_result[7],
-                                        "istek_pretplate": str(potvrdio_result[8]) if potvrdio_result[8] else None,
-                                        "ime_preduzeca": potvrdio_result[9],
-                                        "putanja_za_logo": potvrdio_result[10],
-                                        "radnoVreme": radnoVreme,
-                                        "cenovnik": cenovnik,
-                                        "forma": forma,
-                                        "ai_info": ai_info,
-                                        "opis": potvrdio_result[15],
-                                        "paket_limits": paket_limits
                                     }
                             
                             lokacija_termini.append(termin_data)
@@ -283,7 +264,8 @@ def get_zakazivanja(id):
             return jsonify({
                 "success": True,
                 "preduzeca": preduzeca_list,
-                "zakazano": zakazano_list
+                "zakazano": zakazano_list,
+                "vlasnik_id": vlasnik_id
             }), 200
     except Exception as e:
         return jsonify({
