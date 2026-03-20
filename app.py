@@ -999,52 +999,66 @@ def askAI_route():
 @app.route('/api/aiUsage', methods=['GET'])
 def get_ai_usage():
     """
-    Vraća podatke o korišćenju AI za određeni dan.
-    Čita .json fajl iz ai/ai_usage/[owner_id]/[datum].json
+    Vraća podatke o korišćenju AI iz baze podataka.
+    Čita iz users.ai_usage JSONB kolone
     
     Query parametri:
     - owner_id (obavezno): ID vlasnika
-    - date (opciono): Datum u formatu YYYY-MM-DD, ako nije prosleđen koristi se danasnnji datum
     
     Vraća:
     - JSON sa strukturom:
       {
-        "owner": {"llama3": 0, "llama4": 0},
-        "employees": {"llama3": 0, "llama4": 0},
-        "bookings": {"llama3": 0, "llama4": 0}
+        "owner": {"llama4": 0, "Mistral-24b": 0, "Qwen-3.5": 0, "GPT-OSS20B": 0},
+        "employees": {"llama4": 0, "Mistral-24b": 0, "Qwen-3.5": 0, "GPT-OSS20B": 0},
+        "bookings": {"llama4": 0, "Mistral-24b": 0, "Qwen-3.5": 0, "GPT-OSS20B": 0}
       }
     
-    Ako fajl ne postoji, vraća default values sa svim 0.
+    Ako korisnik nema ai_usage колону, vraća default vrednosti sa 0.
     """
     try:
         owner_id = request.args.get('owner_id')
-        date = request.args.get('date', datetime.now().strftime('%Y-%m-%d'))
         
         if not owner_id:
             return jsonify({'error': 'Nedostaje owner_id parametar'}), 400
         
-        # Konstruiši putanju do fajla
-        file_path = f'ai/ai_usage/{owner_id}/{date}.json'
+        # Default struktura
+        default_data = {
+            "owner": {"llama4": 0, "Mistral-24b": 0, "Qwen-3.5": 0, "GPT-OSS20B": 0},
+            "employees": {"llama4": 0, "Mistral-24b": 0, "Qwen-3.5": 0, "GPT-OSS20B": 0},
+            "bookings": {"llama4": 0, "Mistral-24b": 0, "Qwen-3.5": 0, "GPT-OSS20B": 0}
+        }
         
-        # Provera da li fajl postoji
-        if os.path.exists(file_path):
-            try:
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    return jsonify(data), 200
-            except json.JSONDecodeError as e:
-                print(f"❌ Greška pri parsiranju JSON fajla {file_path}: {str(e)}")
-                return jsonify({'error': 'Invalid JSON file'}), 500
-            except Exception as e:
-                print(f"❌ Greška pri čitanju fajla {file_path}: {str(e)}")
-                return jsonify({'error': f'Greška pri čitanju fajla: {str(e)}'}), 500
-        else:
-            # Ako fajl ne postoji, vrati default vrednosti
-            default_data = {
-                "owner": {"llama3": 0, "llama4": 0},
-                "employees": {"llama3": 0, "llama4": 0},
-                "bookings": {"llama3": 0, "llama4": 0}
-            }
+        # Čitaj iz baze
+        try:
+            query = text("SELECT ai_usage FROM users WHERE id = :id")
+            result = db.session.execute(query, {'id': int(owner_id)}).fetchone()
+            
+            if not result:
+                print(f"⚠️  Korisnik {owner_id} nije pronađen, vraćam default vrednosti")
+                return jsonify(default_data), 200
+            
+            ai_usage = result[0]
+            
+            # Ako je NULL ili prazan, vrati default
+            if not ai_usage:
+                print(f"⚠️  ai_usage je NULL za korisnika {owner_id}")
+                return jsonify(default_data), 200
+            
+            # Ako je već dict (iz JSONB), vrati ga
+            if isinstance(ai_usage, dict):
+                return jsonify(ai_usage), 200
+            
+            # Ako je string, parsuj
+            if isinstance(ai_usage, str):
+                parsed_usage = json.loads(ai_usage)
+                return jsonify(parsed_usage), 200
+            
+            return jsonify(default_data), 200
+            
+        except ValueError:
+            return jsonify({'error': 'owner_id mora biti broj'}), 400
+        except Exception as db_error:
+            print(f"❌ Greška pri čitanju iz baze: {str(db_error)}")
             return jsonify(default_data), 200
     
     except Exception as e:

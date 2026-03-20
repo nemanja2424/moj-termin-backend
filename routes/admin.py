@@ -50,7 +50,7 @@ def get_user_info(user_id):
         from app import db
         
         query = text("""
-            SELECT id, email, paket, ai_info, paket_limits
+            SELECT id, email, paket, ai_info, paket_limits, ai_usage
             FROM users
             WHERE id = :user_id
         """)
@@ -67,7 +67,8 @@ def get_user_info(user_id):
                 'email': result[1],
                 'paket': result[2],
                 'ai_info': result[3] if result[3] else {},
-                'paket_limits': result[4] if result[4] else {}
+                'paket_limits': result[4] if result[4] else {},
+                'ai_usage': result[5] if result[5] else {}
             }
         }), 200
         
