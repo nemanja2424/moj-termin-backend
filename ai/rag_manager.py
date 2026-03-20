@@ -94,6 +94,15 @@ class RAGManager:
             list: Lista relevantnih dokumenata
         """
         try:
+            # Dinamički postavi k ovisno o pitanju
+            pitanje_lower = pitanje.lower()
+            if any(word in pitanje_lower for word in ['statisti', 'analiz', 'trend', 'koliko', 'redosled', 'raspored', 'raspodjel']):
+                k = 20  # Za analizu trebalo bi više dokumenata
+            elif any(word in pitanje_lower for word in ['firm', 'lokacij', 'preduze']):
+                k = 10  # Za firme/lokacije
+            # Inače k ostaje default 6
+            logger.info(f"📊 Dinamički k={k} (pitanje: '{pitanje[:40]}...')")
+            
             # 1. Generiši embedding za pitanje
             logger.info(f"🔍 Generisem embedding za pitanje: '{pitanje[:50]}...'")
             query_embedding = self.generate_embedding(pitanje)
