@@ -298,7 +298,7 @@ class RAGManager:
         paket_limits = user_data.get('paket_limits', 'N/A')
         
         # Kompaktan format - sve relevantne informacije
-        tekst = f"Vlasnik: {username} | Preduzeće: {ime_preduzeca} | Email: {email} | Telefon: {brTel} | Istek pretplate: {istek_pretplate} | Opis: {opis} | Limiti: {paket_limits}"
+        tekst = f"TIP: Korisnik | Vlasnik: {username} | Preduzeće: {ime_preduzeca} | Email: {email} | Telefon: {brTel} | Istek pretplate: {istek_pretplate} | Opis: {opis} | Limiti: {paket_limits}"
         return tekst.strip()
     
     # ============================================================
@@ -326,10 +326,10 @@ class RAGManager:
         
         # Kompaktan format - sve relevantne informacije
         if tip_id == 3:  # TIP 3 - KLIJENT
-            tekst = f"Firma: {ime} | Adresa: {adresa} | Kapacitet: {overlapLimit} | Radno vreme: {radno_vreme} | Cenovnik: {cenovnik}"
+            tekst = f"TIP: Firma | Imena: {ime} | Adresa: {adresa} | Kapacitet: {overlapLimit} | Radno vreme: {radno_vreme} | Cenovnik: {cenovnik}"
         else:  # TIP 1 i 2 - sa vlasnikom
             vlasnik = vlasnik_username or 'N/A'
-            tekst = f"Firma: {ime} | Adresa: {adresa} | Kapacitet: {overlapLimit} | Radno vreme: {radno_vreme} | Cenovnik: {cenovnik} | Vlasnik: {vlasnik}"
+            tekst = f"TIP: Firma | Imena: {ime} | Adresa: {adresa} | Kapacitet: {overlapLimit} | Radno vreme: {radno_vreme} | Cenovnik: {cenovnik} | Vlasnik: {vlasnik}"
         return tekst.strip()
     
     def format_termin_tip1_for_embedding(self, termin_data, firma_ime=None):
@@ -370,7 +370,7 @@ class RAGManager:
             status = "Čeka potvrdu"
         
         # Format sa svim poljima
-        tekst = f"Usluga: {usluga_text} | Firma: {firma_ime or 'N/A'} | {datum} {vreme} | Klijent: {klijent} | Email klijenta: {email} | Telefon klijenta: {telefon} | Opis: {opis} | Status: {status} | Token: {token}"
+        tekst = f"TIP: Termin | Usluga: {usluga_text} | Firma: {firma_ime or 'N/A'} | {datum} {vreme} | Klijent: {klijent} | Email klijenta: {email} | Telefon klijenta: {telefon} | Opis: {opis} | Status: {status} | Token: {token}"
         return tekst.strip()
     
     def format_termin_tip3_for_embedding(self, termin_data, firma_ime=None):
@@ -390,7 +390,7 @@ class RAGManager:
         vreme = termin_data.get('vreme_rezervacije', 'N/A')
         
         # Kompaktan format - samo firma, datum, vreme
-        tekst = f"Firma: {firma_ime or 'N/A'} | {datum} {vreme}"
+        tekst = f"TIP: Termin | Firma: {firma_ime or 'N/A'} | {datum} {vreme}"
         return tekst.strip()
     
     # ============================================================
@@ -414,7 +414,7 @@ class RAGManager:
         firma = firma_ime or 'N/A'
         
         # Kompaktan format
-        tekst = f"Zaposlenik: {username} | Firma: {firma} | Email: {email}"
+        tekst = f"TIP: Korisnik | Zaposlenik: {username} | Firma: {firma} | Email: {email}"
         return tekst.strip()
     
     # ============================================================
@@ -436,6 +436,6 @@ class RAGManager:
         ime = user_data.get('ime_preduzeca', 'N/A')
         opis = user_data.get('opis', 'N/A')
         # Kompaktan format - naziv i opis
-        tekst = f"Preduzeće: {ime} | {opis}"
+        tekst = f"TIP: Korisnik | Preduzeće: {ime} | {opis}"
         return tekst.strip()
 
