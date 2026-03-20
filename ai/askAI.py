@@ -22,8 +22,8 @@ MODEL_NAMES = {
 
 USAGE_FILE_PATH = os.path.join(os.path.dirname(__file__), "ai_usage", "sumUsage.json")
 
-def update_token_usage(prompt_tokens, completion_tokens, model="llama4"):
-    """Ažurira sumUsage.json sa informacijama o potrošnji tokena"""
+def update_token_usage(prompt_tokens, completion_tokens, model="llama4", user_id=None, owner_id=None):
+    """Ažurira sumUsage.json sa informacijama o potrošnji tokena + ID korisnika"""
     try:
         # Provjeri da li fajl postoji
         if not os.path.exists(USAGE_FILE_PATH):
@@ -85,12 +85,20 @@ def update_token_usage(prompt_tokens, completion_tokens, model="llama4"):
         data["models"][model]["requests"] += 1
         
         # Dodaj novu entry u history
-        data["history"].append({
+        history_entry = {
             "timestamp": datetime.now().isoformat(),
             "model": model,
             "entry_token_usage": prompt_tokens,
             "generated_token_usage": completion_tokens
-        })
+        }
+        
+        # Dodaj user_id i owner_id ako su dostupni
+        if user_id is not None:
+            history_entry["user_id"] = user_id
+        if owner_id is not None:
+            history_entry["owner_id"] = owner_id
+        
+        data["history"].append(history_entry)
         
         # Sačuvaj ažurirani fajl
         with open(USAGE_FILE_PATH, 'w', encoding='utf-8') as f:
@@ -104,7 +112,7 @@ def update_token_usage(prompt_tokens, completion_tokens, model="llama4"):
     except Exception as e:
         print(f"❌ Greška pri loganju tokena: {e}")
 
-def askAI(kontekst, poruke, pitanje, model="llama4"):
+def askAI(kontekst, poruke, pitanje, model="llama4", user_id=None, owner_id=None):
     """
     AI asistent sa RAG kontekstom
     
@@ -113,6 +121,8 @@ def askAI(kontekst, poruke, pitanje, model="llama4"):
         poruke (list): Prethodne poruke u razgovoru
         pitanje (str): Trenutno pitanje korisnika
         model (str): Koji model koristiti ('llama3' ili 'llama4')
+        user_id (int): ID korisnika koji postavlja pitanje
+        owner_id (int): ID vlasnika (gde se piše usage)
     """
     today = datetime.today()
     
@@ -235,7 +245,7 @@ def askAI(kontekst, poruke, pitanje, model="llama4"):
             try:
                 prompt_tokens = response.usage.prompt_tokens
                 completion_tokens = response.usage.completion_tokens
-                update_token_usage(prompt_tokens, completion_tokens, model)
+                update_token_usage(prompt_tokens, completion_tokens, model, owner_id)
             except Exception as e:
                 print(f"⚠️  Greška pri ekstraktovanju tokena: {e}")
         

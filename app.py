@@ -924,7 +924,9 @@ def askAI_route():
         }), 429  # Too Many Requests
     
     selected_model = limit_result['model']
+    owner_id = limit_result.get('owner_id', user_id)  # Dohvati owner_id iz limitera
     print(f"✅ Odabrani model: {selected_model}")
+    print(f"✅ Owner ID: {owner_id}")
     # ===== KRAJ PROVERE LIMITACIJA =====
 
     # ===== RAG RETRIEVAL - Pronađi relevantne dokumente =====
@@ -976,7 +978,7 @@ def askAI_route():
     # Pozivanje askAI funkcije sa kontekstom
     try:
         # Novi format - kontekst umelo data_firme
-        odgovor = askAI(kontekst, poruke, pitanje, selected_model)
+        odgovor = askAI(kontekst, poruke, pitanje, selected_model, user_id, owner_id)
         
         return jsonify({
             'status': 'success',

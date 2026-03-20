@@ -335,4 +335,7 @@ def check_and_increment_ai_usage(user_id, rola, db):
         user_type_label = {"owner": "Vlasnik", "employees": "Zaposlenik", "bookings": "Zakazivač"}.get(user_type, "Korisnik")
         print(f"✅ AI usage inkrementiran: {user_type_label}/{model} (owner_id: {owner_id}, original_user_id: {user_id})")
     
+    # Dodaj owner_id u rezultat
+    result["owner_id"] = owner_id
+    
     return result
