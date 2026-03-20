@@ -15,15 +15,17 @@ client = Together(api_key=api_key)
 
 # Mapping od skraćenih imena na pune model zvanične nazive
 MODEL_NAMES = {
-    "llama3": "mistralai/Mistral-Small-24B-Instruct-2501",
-    #"llama3": "meta-llama/Llama-3.2-3B-Instruct-Turbo",
-    "llama4": "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8"
+    "llama4": "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8",
+    "Mistral-24b": "mistralai/Mistral-Small-24B-Instruct-2501",
+    "Qwen-3.5": "Qwen/Qwen3.5-9B",
+    "GPT-OSS20B": "openai/gpt-oss-20b",
 }
 
 USAGE_FILE_PATH = os.path.join(os.path.dirname(__file__), "ai_usage", "sumUsage.json")
 
 def update_token_usage(prompt_tokens, completion_tokens, model="llama4", user_id=None, owner_id=None):
     """Ažurira sumUsage.json sa informacijama o potrošnji tokena + ID korisnika"""
+    # user_id koji se upisuje je id vlasnika
     try:
         # Provjeri da li fajl postoji
         if not os.path.exists(USAGE_FILE_PATH):

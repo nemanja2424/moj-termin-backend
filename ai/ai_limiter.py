@@ -85,60 +85,71 @@ def get_ai_info(user_id, db):
         return None
 
 
-def get_daily_usage(owner_id, date=None):
+def get_ai_usage_from_db(owner_id, db):
     """
-    Dohvata dnevnu upotrebu AI-ja iz JSON fajla.
+    Dohvata AI usage iz baze - users.ai_usage kolona (JSONB)
     
     Returns:
     {
-        "owner": {"llama3": int, "llama4": int},
-        "employees": {"llama3": int, "llama4": int},
-        "bookings": {"llama3": int, "llama4": int}
+        "owner": {"llama4": 0, "Mistral-24b": 0, "GPT-OSS20B": 0},
+        "employees": {...},
+        "bookings": {...}
     }
     """
-    if date is None:
-        date = datetime.now().strftime('%Y-%m-%d')
-    
-    file_path = f'ai/ai_usage/{owner_id}/{date}.json'
-    
-    # Default struktura
-    default_usage = {
-        "owner": {"llama3": 0, "llama4": 0},
-        "employees": {"llama3": 0, "llama4": 0},
-        "bookings": {"llama3": 0, "llama4": 0}
-    }
-    
-    if os.path.exists(file_path):
-        try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except Exception as e:
-            print(f"❌ Greška pri čitanju ai_usage: {str(e)}")
-            return default_usage
-    
-    return default_usage
-
-
-def save_daily_usage(owner_id, usage_data, date=None):
-    """
-    Čuva dnevnu upotrebu AI-ja u JSON fajl.
-    """
-    if date is None:
-        date = datetime.now().strftime('%Y-%m-%d')
-    
-    dir_path = f'ai/ai_usage/{owner_id}'
-    file_path = f'{dir_path}/{date}.json'
-    
-    # Kreiraj direktorijum ako ne postoji
-    os.makedirs(dir_path, exist_ok=True)
-    
     try:
-        with open(file_path, 'w', encoding='utf-8') as f:
-            json.dump(usage_data, f, indent=2, ensure_ascii=False)
-        print(f"✅ AI usage sačuvan: {file_path}")
+        user_query = text("SELECT ai_usage FROM users WHERE id = :id")
+        user_result = db.session.execute(user_query, {'id': int(owner_id)}).fetchone()
+        
+        if not user_result:
+            print(f"❌ Korisnik {owner_id} nije pronađen")
+            return get_default_usage()
+        
+        ai_usage = user_result[0]
+        
+        # Ako je NULL ili prazan, vrati default
+        if not ai_usage:
+            return get_default_usage()
+        
+        # Ako je već dict (iz JSONB), vrati ga
+        if isinstance(ai_usage, dict):
+            return ai_usage
+        
+        # Ako je string, parsuj
+        if isinstance(ai_usage, str):
+            return json.loads(ai_usage)
+        
+        return get_default_usage()
+        
+    except Exception as e:
+        print(f"❌ Greška pri čitanju ai_usage iz baze: {str(e)}")
+        return get_default_usage()
+
+
+def get_default_usage():
+    """Default struktura za AI usage"""
+    return {
+        "owner": {"llama4": 0, "Mistral-24b": 0, "Qwen-3.5": 0, "GPT-OSS20B": 0},
+        "employees": {"llama4": 0, "Mistral-24b": 0, "Qwen-3.5": 0, "GPT-OSS20B": 0},
+        "bookings": {"llama4": 0, "Mistral-24b": 0, "Qwen-3.5": 0, "GPT-OSS20B": 0}
+    }
+
+
+def update_ai_usage_in_db(owner_id, usage_data, db):
+    """
+    Ažurira AI usage u bazi - users.ai_usage kolona (JSONB)
+    """
+    try:
+        update_query = text("UPDATE users SET ai_usage = :usage WHERE id = :id")
+        db.session.execute(update_query, {
+            'id': int(owner_id),
+            'usage': json.dumps(usage_data)
+        })
+        db.session.commit()
+        print(f"✅ AI usage ažuriran u bazi za owner_id={owner_id}")
         return True
     except Exception as e:
-        print(f"❌ Greška pri čuvanju ai_usage: {str(e)}")
+        db.session.rollback()
+        print(f"❌ Greška pri ažuriranju ai_usage u bazi: {str(e)}")
         return False
 
 
@@ -146,87 +157,53 @@ def check_and_select_model(user_type, limits, usage, llm_switch):
     """
     Proverava limite i određuje koji model treba da se koristi.
     
+    "default": birira se od gore na dole (best-first) - llama4 → Mistral-24b → GPT-OSS20B
+    "jeftin": bira se od dole na gore (cheap-first) - GPT-OSS20B → Mistral-24b → llama4
+    
     Args:
     - user_type: "owner" | "employees" | "bookings"
     - limits: struktura limitacija za taj tip korisnika
     - usage: struktura trenutne upotrebe
-    - llm_switch: "default" | "skup" | "jeftin"
+    - llm_switch: "default" | "jeftin"
     
     Returns:
     {
         "allowed": True/False,
-        "model": "llama3" | "llama4" | None,
+        "model": "llama4" | "Mistral-24b" | "GPT-OSS20B" | None,
         "error": "poruka greške" | None
     }
     """
     user_limits = limits.get(user_type, {})
-    user_usage = usage.get(user_type, {"llama3": 0, "llama4": 0})
+    user_usage = usage.get(user_type, {})
     
-    llama3_limit = user_limits.get('llama3', 0)
-    llama4_limit = user_limits.get('llama4', 0)
+    # Định redosled modela
+    if llm_switch == "jeftin":
+        # Jeftin mode: od jeftinog ka skupom
+        model_order = ["GPT-OSS20B", "Qwen-3.5", "Mistral-24b", "llama4"]
+    else:  # default
+        # Default mode: od skupog ka jeftinom
+        model_order = ["llama4", "Mistral-24b", "Qwen-3.5", "GPT-OSS20B"]
     
-    llama3_used = user_usage.get('llama3', 0)
-    llama4_used = user_usage.get('llama4', 0)
-    
-    # Provera dostupnosti
-    llama3_available = llama3_used < llama3_limit
-    llama4_available = llama4_used < llama4_limit
-    
-    if llm_switch == "default":
-        # Prvo pokušaj llama4, ako nije dostupan, koristi llama3
-        if llama4_available:
+    # Proveri svaki model u redosledu
+    for model in model_order:
+        model_limit = user_limits.get(model, 0)
+        model_used = user_usage.get(model, 0)
+        
+        if model_used < model_limit:
+            print(f"✅ Model dostupan: {model} (korišćeno: {model_used}/{model_limit})")
             return {
                 "allowed": True,
-                "model": "llama4",
-                "error": None
-            }
-        elif llama3_available:
-            return {
-                "allowed": True,
-                "model": "llama3",
+                "model": model,
                 "error": None
             }
         else:
-            return {
-                "allowed": False,
-                "model": None,
-                "error": "Svi dostupni modeli su iskorišćeni za danas"
-            }
+            print(f"⚠️  Model iskorišćen: {model} (limit: {model_limit})")
     
-    elif llm_switch == "skup":
-        # Koristi samo llama4
-        if llama4_available:
-            return {
-                "allowed": True,
-                "model": "llama4",
-                "error": None
-            }
-        else:
-            return {
-                "allowed": False,
-                "model": None,
-                "error": "Plaćeni model je iskorišćen za danas"
-            }
-    
-    elif llm_switch == "jeftin":
-        # Koristi samo llama3
-        if llama3_available:
-            return {
-                "allowed": True,
-                "model": "llama3",
-                "error": None
-            }
-        else:
-            return {
-                "allowed": False,
-                "model": None,
-                "error": "Besplatan model je iskorišćen za danas"
-            }
-    
+    # Nijedan model nije dostupan
     return {
         "allowed": False,
         "model": None,
-        "error": "Nepoznat llm_switch"
+        "error": "Svi dostupni modeli su iskorišćeni. Pokušajte kasnije."
     }
 
 
@@ -306,8 +283,8 @@ def check_and_increment_ai_usage(user_id, rola, db):
     limits = ai_info.get('limits', {})
     llm_switch = ai_info.get('llm-switch', 'default')
     
-    # KORAK 3: Dohvati dnevnu upotrebu vlasnika
-    daily_usage = get_daily_usage(owner_id)
+    # KORAK 3: Dohvati AI upotrebu vlasnika iz baze (JSONB)
+    ai_usage = get_ai_usage_from_db(owner_id, db)
     
     # DEBUG ispis
     print(f"\n📋 DEBUG - AI LIMITER INFO:")
@@ -316,21 +293,21 @@ def check_and_increment_ai_usage(user_id, rola, db):
     print(f"  user_type (tip limitacije): {user_type}")
     print(f"  llm_switch: {llm_switch}")
     user_limits = limits.get(user_type, {})
-    user_usage = daily_usage.get(user_type, {})
+    user_usage = ai_usage.get(user_type, {})
     print(f"  limits[{user_type}]: {user_limits}")
     print(f"  usage[{user_type}]: {user_usage}")
     print()
     
     # KORAK 4: Proveri i odaberi model
-    result = check_and_select_model(user_type, limits, daily_usage, llm_switch)
+    result = check_and_select_model(user_type, limits, ai_usage, llm_switch)
     
     if result["allowed"]:
         # Inkrementira brojač za odgovajući tip korisnika
         model = result["model"]
-        daily_usage[user_type][model] += 1
+        ai_usage[user_type][model] += 1
         
-        # Čuva u JSON vlasniku (owner_id)
-        save_daily_usage(owner_id, daily_usage)
+        # Čuva u bazi (JSONB kolona) vlasniku (owner_id)
+        update_ai_usage_in_db(owner_id, ai_usage, db)
         
         user_type_label = {"owner": "Vlasnik", "employees": "Zaposlenik", "bookings": "Zakazivač"}.get(user_type, "Korisnik")
         print(f"✅ AI usage inkrementiran: {user_type_label}/{model} (owner_id: {owner_id}, original_user_id: {user_id})")
