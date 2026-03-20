@@ -928,10 +928,12 @@ def askAI_route():
 
     # ===== RAG RETRIEVAL - Pronađi relevantne dokumente =====
     try:
+        import time
         rag = RAGManager(db)
         
-        print(f"🔍 RAG retrieval za user_id={user_id}")
+        print(f"\n🔍 RAG retrieval za user_id={user_id}")
         print(f"   Pitanje: '{pitanje[:60]}...'")
+        rag_start = time.time()
         
         # ===== RAZGRANIČAVANJE TIPOVA KORISNIKA =====
         # Ako je prosleđen vlasnik_id u payload-u → to je KLIJENT koji zakazuje
@@ -950,6 +952,9 @@ def askAI_route():
             k=6
         )
         
+        rag_duration = time.time() - rag_start
+        print(f"⏱  RAG retrieval trajao: {rag_duration:.2f}s - Pronađeno {len(relevant_docs) if relevant_docs else 0} dokumenata")
+        
         if not relevant_docs:
             print("⚠️  Nema relevantnih dokumenata, koristi fallback")
             # Fallback - koristi stari sistem ako nema embeddings-a
@@ -960,7 +965,7 @@ def askAI_route():
         else:
             # Formatiraj kontekst iz relevantnih dokumenata
             kontekst = rag.format_context(relevant_docs)
-            print(f"✅ Pronađeno {len(relevant_docs)} relevantnih dokumenata")
+            print(f"✅ Kontekst formatiran za LLM")
         
     except Exception as e:
         print(f"❌ Greška pri RAG retrieval-u: {str(e)}")
