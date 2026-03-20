@@ -99,8 +99,19 @@ app.register_blueprint(tests_bp, url_prefix='/api/tests')
 # Pre-učitaj embedding model pri pokretanju aplikacije
 # Ovo sprečava kašnjenje na prvom AI zahtjevu
 with app.app_context():
-    from ai.rag_manager import preload_model
-    preload_model()
+    # Provera da li treba učitati RAG sistem
+    load_rag = os.getenv('LOAD_RAG', 'false').lower() in ['true', '1', 'yes']
+    
+    if load_rag:
+        print("🚀 LOAD_RAG=true - Učitavam AI sistem...")
+        try:
+            from ai.rag_manager import preload_model
+            preload_model()
+            print("✅ AI sistem uspešno učitan!")
+        except Exception as e:
+            print(f"❌ Greška pri učitavanju AI sistema: {e}")
+    else:
+        print("⏭️  LOAD_RAG nije postavljen na 'true' - AI sistem se ne učitava na startupu")
 
 
 
