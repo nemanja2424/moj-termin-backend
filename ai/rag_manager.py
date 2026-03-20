@@ -97,7 +97,7 @@ class RAGManager:
             # Dinamički postavi k ovisno o pitanju
             pitanje_lower = pitanje.lower()
             if any(word in pitanje_lower for word in ['statisti', 'analiz', 'trend', 'koliko', 'redosled', 'raspored', 'raspodjel']):
-                k = 20  # Za analizu trebalo bi više dokumenata
+                k = 60  # Za analizu trebalo bi više dokumenata
             elif any(word in pitanje_lower for word in ['firm', 'lokacij', 'preduze']):
                 k = 10  # Za firme/lokacije
             # Inače k ostaje default 6
