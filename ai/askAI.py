@@ -177,7 +177,7 @@ def askAI(kontekst, poruke, pitanje, model="llama4"):
           }
         }
         [/agent_proposal]
-        
+
         Obavezni podaci:
         - Ime
         - email
@@ -198,11 +198,7 @@ def askAI(kontekst, poruke, pitanje, model="llama4"):
     messages = [
         {
             "role": "system",
-            "content": system_content
-        },
-        {
-            "role": "system",
-            "content": f"PODACI FIRME:\n{formatted_data}\n\nDanasnji datum: {today}"
+            "content": f"{system_content} \nPODACI FIRME:\n{formatted_data}\n\nDanasnji datum: {today}"
         }
     ]
     #print(formatted_data)
