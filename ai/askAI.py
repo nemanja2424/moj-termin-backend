@@ -215,7 +215,7 @@ def askAI(kontekst, poruke, pitanje, model="llama4"):
     full_model_name = MODEL_NAMES.get(model, MODEL_NAMES["llama4"])
     
     print(f"\n🤖 AI ZAHTEV - Model: {model.upper()}\n")
-    print(json.dumps(messages, indent=2, ensure_ascii=False))
+    #print(json.dumps(messages, indent=2, ensure_ascii=False))
     print(f"\n📤 Slanje zahteva Together AI ({full_model_name})...")
     print()
     
