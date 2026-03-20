@@ -245,13 +245,10 @@ def askAI(kontekst, poruke, pitanje, model="llama4"):
     # Dobij puni naziv modela
     full_model_name = MODEL_NAMES.get(model, MODEL_NAMES["llama4"])
     
-    print(f"\n🤖 AI ZAHTEV - Model: {model.upper()} ({full_model_name})")
-    print(f"💬 Pitanje: {pitanje[:80]}...")
-    print(f"📊 Broj prethodnih poruka: {len(poruke)}")
+    print(f"\n🤖 AI ZAHTEV - Model: {model.upper()}\n")
+    print(json.dumps(messages, indent=2, ensure_ascii=False))
+    print(f"\n📤 Slanje zahteva Together AI ({full_model_name})...")
     print()
-
-    # Pozovi LLM - Together 2.4.0 API
-    print(f"📤 Slanje zahteva Together AI ({full_model_name})...")
     
     try:
         response = client.chat.completions.create(
