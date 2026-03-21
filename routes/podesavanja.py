@@ -346,9 +346,9 @@ def update_user(user_id):
             update_query = text("""
                 UPDATE users 
                 SET username = :username, email = :email, brTel = :brTel, 
-                    ime_preduzeca = :ime_preduzeca, opis = :opis
+                    ime_preduzeca = :ime_preduzeca, opis = :opis, id_kateg = :id_kateg
                 WHERE id = :id
-                RETURNING id, username, email, brTel, ime_preduzeca, opis
+                RETURNING id, username, email, brTel, ime_preduzeca, opis, id_kateg
             """)
             
             params = {
@@ -357,7 +357,8 @@ def update_user(user_id):
                 'email': (data.get('email') or '').strip(),
                 'brTel': (data.get('brTel') or '').strip(),
                 'ime_preduzeca': (data.get('ime_preduzeca') or '').strip(),
-                'opis': (data.get('opis') or '').strip()
+                'opis': (data.get('opis') or '').strip(),
+                'id_kateg': data.get('id_kateg')
             }
             
             result = db.session.execute(update_query, params).fetchone()
@@ -371,7 +372,8 @@ def update_user(user_id):
                 "email": result[2],
                 "brTel": result[3],
                 "ime_preduzeca": result[4],
-                "opis": result[5]
+                "opis": result[5],
+                "id_kateg": result[6]
             }
         }), 200
         

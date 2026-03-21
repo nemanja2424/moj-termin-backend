@@ -446,3 +446,94 @@ def get_ai_usage_history():
         }), 500
 
 
+@admin_bp.route('/spozorisano', methods=['PATCH'])
+def update_spozorisano():
+    """
+    Ažurira sponzorisano polje za korisnika.
+    
+    Očekuje:
+    - username: string (admin kredencijali)
+    - password: string (admin kredencijali)
+    - id: int (obavezno ako se ne prosleđuje email)
+    - email: string (obavezno ako se ne prosleđuje id)
+    - sponzorisano: string (TEXT polje)
+    
+    Vraća:
+    - 200: Uspešna ažuriranja
+    - 400: Validacijska greška ili neispravni kredencijali
+    - 404: Korisnik nije pronađen
+    """
+    try:
+        from app import db, app
+        
+        data = request.json
+        
+        if not data:
+            return jsonify({'error': 'Nedostaje JSON u zahtevу'}), 400
+        
+        # Provera admin kredencijala
+        if not verify_admin_credentials(data):
+            return jsonify({'error': 'Neispravni admin kredencijali'}), 401
+        
+        user_id = data.get('id')
+        email = data.get('email')
+        sponzorisano = data.get('sponzorisano')
+        
+        # Validacija sponzorisano polja
+        if sponzorisano is None:
+            return jsonify({'error': 'sponzorisano je obavezan'}), 400
+        
+        with app.app_context():
+            # Određivanje po čemu ćemo pretraživati
+            if user_id and user_id != 0:
+                # Koristi ID
+                query = text("""
+                    UPDATE users
+                    SET sponzorisano = :sponzorisano
+                    WHERE id = :user_id
+                    RETURNING id, email, sponzorisano
+                """)
+                params = {
+                    'sponzorisano': sponzorisano,
+                    'user_id': user_id
+                }
+                result = db.session.execute(query, params).fetchone()
+                
+            elif email:
+                # Koristi email
+                query = text("""
+                    UPDATE users
+                    SET sponzorisano = :sponzorisano
+                    WHERE email = :email
+                    RETURNING id, email, sponzorisano
+                """)
+                params = {
+                    'sponzorisano': sponzorisano,
+                    'email': email
+                }
+                result = db.session.execute(query, params).fetchone()
+            else:
+                return jsonify({'error': 'Nedostaje id ili email'}), 400
+            
+            # Proveravamo da li je korisnik pronađen
+            if not result:
+                return jsonify({'error': 'Korisnik nije pronađen'}), 404
+            
+            db.session.commit()
+        
+        return jsonify({
+            'status': 200,
+            'message': 'sponzorisano uspešno ažurirano',
+            'user_id': result[0],
+            'email': result[1],
+            'sponzorisano': result[2]
+        }), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        print(f"❌ Greška u /api/admin/spozorisano: {str(e)}")
+        return jsonify({
+            'status': 500,
+            'error': str(e)
+        }), 500
+

@@ -389,7 +389,7 @@ def get_podesanja_data():
         
         with app.app_context():
             # Dohvatanje korisnika
-            user_query = text("SELECT id, username, email, brTel, rola, paket, zaposlen_u, ime_preduzeca, putanja_za_logo, opis, paket_limits, cenovnik, radnoVreme FROM users WHERE id = :id")
+            user_query = text("SELECT id, username, email, brTel, rola, paket, zaposlen_u, ime_preduzeca, putanja_za_logo, opis, paket_limits, cenovnik, radnoVreme, id_kateg FROM users WHERE id = :id")
             user = db.session.execute(user_query, {'id': current_user_id}).fetchone()
             
             if not user:
@@ -399,6 +399,17 @@ def get_podesanja_data():
                 }), 404
             
             user_rola = user[4]  # rola
+            
+            # Dohvatanje svih kategorija
+            kategorije_query = text("SELECT id, kategorija FROM kategorije ORDER BY kategorija")
+            kategorije_results = db.session.execute(kategorije_query).fetchall()
+            
+            kategorije_list = []
+            for kat in kategorije_results:
+                kategorije_list.append({
+                    "id": kat[0],
+                    "kategorija": kat[1]
+                })
             
             # Lista za preduzeca
             preduzeca = []
@@ -458,8 +469,10 @@ def get_podesanja_data():
                 "opis": user[9],
                 "paket_limits": user[10],
                 "cenovnik": user[11],
-                "radnoVreme": user[12]
+                "radnoVreme": user[12],
+                "id_kateg": user[13]
             },
+            "kategorije": kategorije_list,
             "preduzeca": preduzeca
         }), 200
         

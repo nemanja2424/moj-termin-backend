@@ -88,6 +88,12 @@ app.register_blueprint(aiInfo_bp, url_prefix="/api/ai/info")
 from routes.zakazivanja import zakazivanja_bp
 app.register_blueprint(zakazivanja_bp, url_prefix="/api/zakazivanja")
 
+from routes.preduzeca import preduzeca_bp
+app.register_blueprint(preduzeca_bp, url_prefix="/api/preduzeca")
+
+from routes.klijent import klijent_bp
+app.register_blueprint(klijent_bp, url_prefix="/api/klijent")
+
 from routes.admin import admin_bp
 app.register_blueprint(admin_bp, url_prefix="/api/admin")
 
@@ -275,18 +281,28 @@ def zakazi_termin():
             vlasnik_id = preduzeca_result[0]
             preduzece_ime = preduzeca_result[1]
             
+            # Dohvatanje role korisnika (ako user_id postoji)
+            user_rola = None
+            if user_id:
+                user_rola_query = text("SELECT rola FROM users WHERE id = :id")
+                user_rola_result = db.session.execute(user_rola_query, {'id': int(user_id)}).fetchone()
+                user_rola = user_rola_result[0] if user_rola_result else None
+            
             # Kreiranje novog zakazivanja
             insert_query = text("""
                 INSERT INTO zakazivanja (
                     ime_firme, ime, email, telefon, datum_rezervacije, vreme_rezervacije,
-                    usluga, opis, potvrdio, token, otkazano, created_at
+                    usluga, opis, potvrdio, token, otkazano, zakazivac_id, created_at
                 ) VALUES (
                     :ime_firme, :ime, :email, :telefon, :datum_rezervacije, :vreme_rezervacije,
-                    :usluga, :opis, :potvrdio, :token, :otkazano, :created_at
+                    :usluga, :opis, :potvrdio, :token, :otkazano, :zakazivac_id, :created_at
                 )
                 RETURNING id, ime_firme, ime, email, telefon, datum_rezervacije, 
                           vreme_rezervacije, usluga, opis, potvrdio, created_at
             """)
+            
+            # Upis zakazivac_id samo ako je rola 3 (klijent)
+            zakazivac_id = int(user_id) if user_id and user_rola == 3 else None
             
             params = {
                 'ime_firme': int(preduzece_id),
@@ -297,9 +313,10 @@ def zakazi_termin():
                 'vreme_rezervacije': podaci.get('vreme'),
                 'usluga': json.dumps(podaci.get('usluga', {})),
                 'opis': podaci.get('opis', ''),
-                'potvrdio': int(user_id) if user_id else None,
+                'potvrdio': int(user_id) if user_id and user_rola in [1, 2] else None,
                 'token': token,
                 'otkazano': False,
+                'zakazivac_id': zakazivac_id,
                 'created_at': datetime.utcnow()
             }
             
@@ -360,9 +377,11 @@ def zakazi_termin():
             except Exception as email_error:
                 print(f"❌ Greška pri slanju potvrde emaila: {str(email_error)}")
             
-            # Slanje mejla zaposlenima ako je userId postavljen (nije null)
-            if user_id is None:
-                print(f"Slanje mejla zaposlenima...")
+            # Slanje mejla zaposlenima ako rola NIJE 1 ili 2 (tj. ako je None, 0, 3 ili druga vrednost)
+            should_send_to_workers = user_id is None or user_rola not in [1, 2]
+            
+            if should_send_to_workers:
+                print(f"Slanje mejla zaposlenima... (user_id: {user_id}, rola: {user_rola})")
                 try:
                     send_email_to_workers(
                         vlasnik_id,
@@ -376,7 +395,7 @@ def zakazi_termin():
                 except Exception as worker_email_error:
                     print(f"❌ Greška pri slanju emaila zaposlenima: {str(worker_email_error)}")
             else:
-                print(f"UserId je {user_id}, mejl zaposlenima se ne šalje")
+                print(f"Mejl zaposlenima se ne šalje (user_id: {user_id}, rola: {user_rola})")
         
         return jsonify({
             "success": True,
@@ -422,6 +441,16 @@ def izmeniTermin():
                 return jsonify({'error': 'Zakazivanje nije pronađeno'}), 404
             
             zakaz_id, ime_firme_id = result[0], result[1]
+            
+            # Dohvatanje role korisnika (ako user_id postoji)
+            user_rola = None
+            if user_id:
+                user_rola_query = text("SELECT rola FROM users WHERE id = :id")
+                user_rola_result = db.session.execute(user_rola_query, {'id': int(user_id)}).fetchone()
+                user_rola = user_rola_result[0] if user_rola_result else None
+            
+            # Logika za slanje mejla zaposlenima: šalje se ako rola NIJE 1 ili 2
+            should_send_to_workers = user_id is None or user_rola not in [1, 2]
             
             # 2. Pripremi datum za ažuriranje
             datum_rezervacije = None
@@ -540,7 +569,7 @@ def izmeniTermin():
                     except Exception as email_error:
                         print(f"❌ Greška pri slanju mejla korisniku: {str(email_error)}")
                     
-                    if user_id is not None:
+                    if should_send_to_workers:
                         try:
                             send_email_to_workers(
                                 data.get('id'),
@@ -625,7 +654,7 @@ def izmeniTermin():
                     except Exception as email_error:
                         print(f"❌ Greška pri slanju mejla: {str(email_error)}")
 
-                    if user_id is not None:
+                    if should_send_to_workers:
                         try:
                             send_email_to_workers(  # Novoj lokaciji
                                 data.get('id'),
@@ -657,7 +686,7 @@ def izmeniTermin():
                             print(f"❌ Greška pri slanju mejla zaposlenima (stara): {str(worker_error)}")
                 
                 else:  # Zaposleni menja
-                    if user_id is not None:
+                    if should_send_to_workers:
                         try:
                             send_email_to_workers(
                                 data.get('id'),
@@ -814,10 +843,12 @@ def otkaziTermin():
     """
     Otkazuje zakazivanje i menja "otkazano" polje na true.
     Šalje mejl korisniku o otkazivanju.
+    Ako je korisnik sa role 3 (klijent) ili bez role, šalje mejl i zaposlenima.
     """
     try:
         data = request.json
         token = data.get('token')
+        user_id = data.get('userId')
         
         # Validacija
         if not token:
@@ -837,6 +868,16 @@ def otkaziTermin():
             
             zakaz_id, email, ime, datum, vreme, ime_firme_id = zakazivanje
             
+            # Dohvatanje role korisnika (ako user_id postoji)
+            user_rola = None
+            if user_id:
+                user_rola_query = text("SELECT rola FROM users WHERE id = :id")
+                user_rola_result = db.session.execute(user_rola_query, {'id': int(user_id)}).fetchone()
+                user_rola = user_rola_result[0] if user_rola_result else None
+            
+            # Logika za slanje mejla zaposlenima: šalje se ako rola NIJE 1 ili 2
+            should_send_to_workers = user_id is None or user_rola not in [1, 2]
+            
             # 2. Ažuriraj "otkazano" polje na true
             update_query = text("""
                 UPDATE zakazivanja 
@@ -847,9 +888,10 @@ def otkaziTermin():
             db.session.commit()
             
             # 3. Dohvati podatke o firmi
-            firma_query = text("SELECT ime FROM preduzeca WHERE id = :id")
+            firma_query = text("SELECT id, ime, vlasnik FROM preduzeca WHERE id = :id")
             firma_result = db.session.execute(firma_query, {'id': ime_firme_id}).fetchone()
-            firma_ime = firma_result[0] if firma_result else 'Firmi'
+            firma_ime = firma_result[1] if firma_result else 'Firmi'
+            vlasnik_id = firma_result[2] if firma_result else None
             
             # 4. Formatiraj datum
             date_parts = str(datum).split('-')
@@ -886,6 +928,22 @@ def otkaziTermin():
                 send_confirmation_email(email, poruka, subject, html_poruka)
             except Exception as email_error:
                 print(f"❌ Greška pri slanju mejla o otkazivanju: {str(email_error)}")
+            
+            # 6. Slanje mejla zaposlenima ako je rola 3 ili nema role
+            if should_send_to_workers and vlasnik_id:
+                print(f"Slanje mejla zaposlenima o otkazivanju... (user_id: {user_id}, rola: {user_rola})")
+                try:
+                    send_email_to_workers(
+                        vlasnik_id,
+                        'Otkazivanje termina',
+                        token,
+                        ime_firme_id,
+                        firma_ime,
+                        datum_prikaz,
+                        ime
+                    )
+                except Exception as worker_email_error:
+                    print(f"❌ Greška pri slanju mejla zaposlenima o otkazivanju: {str(worker_email_error)}")
         
         return jsonify({
             'status': 200,
