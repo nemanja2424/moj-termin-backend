@@ -214,7 +214,7 @@ def get_termin_za_izmenu(vlasnik_id, token):
                         elif not isinstance(usluga_zak, dict):
                             usluga_zak = {}
                         
-                        lokacije_dict[pred_id]["zauzeti_termini"].append({
+                        zauzeti_termin = {
                             "id": row[16],
                             "created_at": row[17],
                             "ime_firme": row[18],
@@ -228,7 +228,19 @@ def get_termin_za_izmenu(vlasnik_id, token):
                             "potvrdio": row[26],
                             "token": row[27],
                             "otkazano": row[28]
-                        })
+                        }
+                        
+                        # Dodaj potvrdio_zaposlen ako postoji
+                        if row[26]:  # potvrdio
+                            potvrdio_user_query = text("SELECT username, email FROM users WHERE id = :id")
+                            potvrdio_user_result = db.session.execute(potvrdio_user_query, {'id': row[26]}).fetchone()
+                            if potvrdio_user_result:
+                                zauzeti_termin["potvrdio_zaposlen"] = {
+                                    "username": potvrdio_user_result[0],
+                                    "email": potvrdio_user_result[1]
+                                }
+                        
+                        lokacije_dict[pred_id]["zauzeti_termini"].append(zauzeti_termin)
             
             if not termin_data:
                 return jsonify({
@@ -241,6 +253,16 @@ def get_termin_za_izmenu(vlasnik_id, token):
                     "success": False,
                     "error": "Korisnik nije pronađen"
                 }), 404
+            
+            # Pronalaženje korisnika koji je potvrdio termin
+            if termin_data.get("potvrdio"):
+                potvrdio_user_query = text("SELECT username, email FROM users WHERE id = :id")
+                potvrdio_user_result = db.session.execute(potvrdio_user_query, {'id': termin_data["potvrdio"]}).fetchone()
+                if potvrdio_user_result:
+                    termin_data["potvrdio_zaposlen"] = {
+                        "username": potvrdio_user_result[0],
+                        "email": potvrdio_user_result[1]
+                    }
             
             # Parsiranje JSONB polja korisnika
             forma = user_result[7]
