@@ -213,6 +213,27 @@ def get_user_profile(user_id):
             user_rola = user[4]  # rola
             zaposlen_u = user[6]  # zaposlen_u
             
+            # Pronalaženje vlasnika - zavisi od role
+            vlasnik_id = None
+            if user_rola == 1:  # Vlasnik
+                vlasnik_id = user[0]  # Vlasnik je sam korisnik
+            else:  # Zaposleni
+                # Pronalaženje preduzeća gde je zaposleni zaposlen
+                preduzece_query = text("SELECT vlasnik FROM preduzeca WHERE id = :preduzece_id")
+                preduzece_result = db.session.execute(preduzece_query, {'preduzece_id': zaposlen_u}).fetchone()
+                
+                if not preduzece_result:
+                    return jsonify({
+                        "success": False,
+                        "error": "Preduzeće nije pronađeno"
+                    }), 404
+                
+                vlasnik_id = preduzece_result[0]
+            
+            # Dohvatanje podataka vlasnika
+            vlasnik_query = text("SELECT id, username, email, brTel, rola, paket, zaposlen_u, ime_preduzeca, putanja_za_logo, opis FROM users WHERE id = :id")
+            vlasnik_user = db.session.execute(vlasnik_query, {'id': vlasnik_id}).fetchone()
+            
             # Lista za preduzeca i zakazivanja
             preduzeca = []
             zakazano = []
@@ -279,9 +300,9 @@ def get_user_profile(user_id):
                         })
                 
                 vlasnik_info = {
-                    "id": user[0],
-                    "ime": user[1],
-                    "email": user[2]
+                    "id": vlasnik_user[0],
+                    "ime": vlasnik_user[1],
+                    "email": vlasnik_user[2]
                 }
             
             else:  # Zaposleni ili redovni korisnik
@@ -342,31 +363,21 @@ def get_user_profile(user_id):
                             "potvrdio_user": potrdio_user_info
                         })
                 
-                # Dohvatanje podataka o vlasniku preduzeca (iz prvog preduzeca)
-                if preduzeca:
-                    vlasnik_query = text("""
-                        SELECT p.vlasnik FROM preduzeca p WHERE p.id = :preduzece_id
-                    """)
-                    vlasnik_res = db.session.execute(vlasnik_query, {'preduzece_id': preduzeca[0]['id']}).fetchone()
-                    
-                    if vlasnik_res:
-                        vlasnik_info_query = text("SELECT username, email FROM users WHERE id = :id")
-                        vlasnik_info_res = db.session.execute(vlasnik_info_query, {'id': vlasnik_res[0]}).fetchone()
-                        if vlasnik_info_res:
-                            vlasnik_info = {
-                                "id": vlasnik_res[0],
-                                "ime": vlasnik_info_res[0],
-                                "email": vlasnik_info_res[1]
-                            }
+                # Vrati podatke vlasnika za zaposlenog
+                vlasnik_info = {
+                    "id": vlasnik_user[0],
+                    "ime": vlasnik_user[1],
+                    "email": vlasnik_user[2]
+                }
         
         return jsonify({
             "vlasnik": {
-                "id": user[0],
-                "ime_preduzeca": user[7],
-                "putanja_za_logo": user[8]
+                "id": vlasnik_user[0],
+                "ime_preduzeca": vlasnik_user[7],
+                "putanja_za_logo": vlasnik_user[8]
             },
             "korisnik": {
-                "username": user[1]
+                "username": vlasnik_user[1]
             },
             "zakazano": [zakazano]
         }), 200
