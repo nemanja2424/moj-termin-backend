@@ -11,7 +11,8 @@ import requests
 from sqlalchemy import text
 import json
 import secrets
-from mailManager import send_confirmation_email, send_email_to_workers, html_head
+from mailManager import html_head
+from async_mail_service import send_confirmation_email_async, send_email_to_workers_async
 from ai.askAI import askAI
 from ai.chat_manager import (
     create_new_chat, save_chat_message, load_chat, 
@@ -368,7 +369,7 @@ def zakazi_termin():
 
             # Slanje emaila sa error handling-om
             try:
-                send_confirmation_email(
+                send_confirmation_email_async(
                     podaci.get('email'),
                     poruka,
                     subject,
@@ -383,7 +384,7 @@ def zakazi_termin():
             if should_send_to_workers:
                 print(f"Slanje mejla zaposlenima... (user_id: {user_id}, rola: {user_rola})")
                 try:
-                    send_email_to_workers(
+                    send_email_to_workers_async(
                         vlasnik_id,
                         'Novo zakazivanje',
                         token,
@@ -560,7 +561,7 @@ def izmeniTermin():
                     """
                     
                     try:
-                        send_confirmation_email(
+                        send_confirmation_email_async(
                             podaci.get('email'),
                             poruka,
                             subject,
@@ -571,9 +572,8 @@ def izmeniTermin():
                     
                     if should_send_to_workers:
                         try:
-                            send_email_to_workers(
+                            send_email_to_workers_async(
                                 data.get('id'),
-                                nova_lokacija,
                                 'Izmena termina',
                                 token,
                                 nova_lokacija,
@@ -610,7 +610,7 @@ def izmeniTermin():
                     """
 
                     try:
-                        send_confirmation_email(
+                        send_confirmation_email_async(
                             podaci.get('email'),
                             poruka,
                             subject,
@@ -645,7 +645,7 @@ def izmeniTermin():
                     """
                     
                     try:
-                        send_confirmation_email(
+                        send_confirmation_email_async(
                             podaci.get('email'),
                             poruka,
                             subject,
@@ -656,9 +656,8 @@ def izmeniTermin():
 
                     if should_send_to_workers:
                         try:
-                            send_email_to_workers(  # Novoj lokaciji
+                            send_email_to_workers_async(  # Novoj lokaciji
                                 data.get('id'),
-                                nova_lokacija,
                                 'Izmena termina - nova lokacija',
                                 token,
                                 nova_lokacija,
@@ -671,9 +670,8 @@ def izmeniTermin():
                             print(f"❌ Greška pri slanju mejla zaposlenima (nova): {str(worker_error)}")
                         
                         try:
-                            send_email_to_workers(  # Staroj lokaciji
+                            send_email_to_workers_async(  # Staroj lokaciji
                                 data.get('id'),
-                                stara_lokacija,
                                 'Izmena termina na novu lokaciju',
                                 token,
                                 stara_lokacija,
@@ -688,9 +686,8 @@ def izmeniTermin():
                 else:  # Zaposleni menja
                     if should_send_to_workers:
                         try:
-                            send_email_to_workers(
+                            send_email_to_workers_async(
                                 data.get('id'),
-                                nova_lokacija,
                                 'Izmena termina - nova lokacija',
                                 token,
                                 nova_lokacija,
@@ -703,9 +700,8 @@ def izmeniTermin():
                             print(f"❌ Greška pri slanju mejla zaposlenima (nova): {str(worker_error)}")
                         
                         try:
-                            send_email_to_workers(
+                            send_email_to_workers_async(
                                 data.get('id'),
-                                stara_lokacija,
                                 'Izmena termina na novu lokaciju',
                                 token,
                                 stara_lokacija,
@@ -819,7 +815,7 @@ def potvrdiTermin():
             subject = f"Potvrda termina - {firma_ime}"
             
             try:
-                send_confirmation_email(email, poruka, subject, html_poruka)
+                send_confirmation_email_async(email, poruka, subject, html_poruka)
             except Exception as email_error:
                 print(f"❌ Greška pri slanju mejla o potvrdi: {str(email_error)}")
         
@@ -925,7 +921,7 @@ def otkaziTermin():
             subject = f"Otkazivanje termina - {firma_ime}"
             
             try:
-                send_confirmation_email(email, poruka, subject, html_poruka)
+                send_confirmation_email_async(email, poruka, subject, html_poruka)
             except Exception as email_error:
                 print(f"❌ Greška pri slanju mejla o otkazivanju: {str(email_error)}")
             
@@ -933,7 +929,7 @@ def otkaziTermin():
             if should_send_to_workers and vlasnik_id:
                 print(f"Slanje mejla zaposlenima o otkazivanju... (user_id: {user_id}, rola: {user_rola})")
                 try:
-                    send_email_to_workers(
+                    send_email_to_workers_async(
                         vlasnik_id,
                         'Otkazivanje termina',
                         token,

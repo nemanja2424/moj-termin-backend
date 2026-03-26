@@ -16,3 +16,5 @@ appStari.py
 
 # env files (can opt-in for committing if needed)
 .env*
+
+ASYNC_EMAIL_README.md
