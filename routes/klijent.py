@@ -1,4 +1,5 @@
 from flask import Blueprint, jsonify, request
+from flask_jwt_extended import jwt_required
 from sqlalchemy import text
 import json
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -7,6 +8,7 @@ klijent_bp = Blueprint('klijent', __name__)
 
 
 @klijent_bp.route('/<int:client_id>', methods=['GET'])
+@jwt_required
 def getKlijentInfo(client_id):
     """
     Vraća informacije o klijentu i sve termine koje je zakazao.
@@ -128,6 +130,7 @@ def getKlijentInfo(client_id):
 
 
 @klijent_bp.route('/<int:client_id>', methods=['PATCH'])
+@jwt_required
 def updateKlijentInfo(client_id):
     """
     Ažurira informacije o klijentu (username, email, brTel).
@@ -220,6 +223,7 @@ def updateKlijentInfo(client_id):
 
 
 @klijent_bp.route('/<int:client_id>/lozinka', methods=['PATCH'])
+@jwt_required
 def updateKlijentLozinka(client_id):
     """
     Ažurira lozinku klijenta.
