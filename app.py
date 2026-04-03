@@ -188,12 +188,28 @@ def zakazi_termin():
         user_id = data.get('userId')
         preduzece_id = podaci.get('lokacija')
         
-        # Validacija obaveznih polja
-        if not podaci.get('email'):
+        # Dohvatanje role korisnika (ako user_id postoji) - PRVO pre validacije emaila
+        user_rola = None
+        if user_id:
+            with app.app_context():
+                user_rola_query = text("SELECT rola FROM users WHERE id = :id")
+                user_rola_result = db.session.execute(user_rola_query, {'id': int(user_id)}).fetchone()
+                user_rola = user_rola_result[0] if user_rola_result else None
+        
+        # Validacija obaveznih polja (usluga, datum, vreme)
+        if not podaci.get('usluga'):
             return jsonify({
                 "success": False,
-                "error": "Email je obavezan"
+                "error": "Usluga je obavezna"
             }), 400
+        
+        # Email je obavezan samo ako nema userId ili je uloga različita od 1 i 2
+        if not user_id or user_rola not in [1, 2]:
+            if not podaci.get('email'):
+                return jsonify({
+                    "success": False,
+                    "error": "Email je obavezan"
+                }), 400
         
         # Validacija preduzece_id
         if not preduzece_id:
@@ -281,13 +297,6 @@ def zakazi_termin():
             
             vlasnik_id = preduzeca_result[0]
             preduzece_ime = preduzeca_result[1]
-            
-            # Dohvatanje role korisnika (ako user_id postoji)
-            user_rola = None
-            if user_id:
-                user_rola_query = text("SELECT rola FROM users WHERE id = :id")
-                user_rola_result = db.session.execute(user_rola_query, {'id': int(user_id)}).fetchone()
-                user_rola = user_rola_result[0] if user_rola_result else None
             
             # Kreiranje novog zakazivanja
             insert_query = text("""
@@ -433,6 +442,19 @@ def izmeniTermin():
         if not token:
             return jsonify({'error': 'Nema tokena'}), 400
         
+        # Dohvatanje role korisnika (ako user_id postoji) - PRVO pre ostalih provera
+        user_rola = None
+        with app.app_context():
+            if user_id:
+                user_rola_query = text("SELECT rola FROM users WHERE id = :id")
+                user_rola_result = db.session.execute(user_rola_query, {'id': int(user_id)}).fetchone()
+                user_rola = user_rola_result[0] if user_rola_result else None
+            
+            # Email je obavezan samo ako nema userId ili je uloga različita od 1 i 2
+            if not user_id or user_rola not in [1, 2]:
+                if not podaci.get('email'):
+                    return jsonify({'error': 'Email je obavezan'}), 400
+        
         with app.app_context():
             # 1. Pronađi zakazivanje po tokenu
             find_query = text("SELECT id, ime_firme FROM zakazivanja WHERE token = :token")
@@ -442,13 +464,6 @@ def izmeniTermin():
                 return jsonify({'error': 'Zakazivanje nije pronađeno'}), 404
             
             zakaz_id, ime_firme_id = result[0], result[1]
-            
-            # Dohvatanje role korisnika (ako user_id postoji)
-            user_rola = None
-            if user_id:
-                user_rola_query = text("SELECT rola FROM users WHERE id = :id")
-                user_rola_result = db.session.execute(user_rola_query, {'id': int(user_id)}).fetchone()
-                user_rola = user_rola_result[0] if user_rola_result else None
             
             # Logika za slanje mejla zaposlenima: šalje se ako rola NIJE 1 ili 2
             should_send_to_workers = user_id is None or user_rola not in [1, 2]
