@@ -346,7 +346,7 @@ def zakazi_termin():
             # Slanje potvrde emaila zakazivačу
             subject = f"Zakazivanje termina - {preduzece_ime}"
             poruka = f"""Poštovani,
-            Vaš termin u {preduzece_ime} je uspešno zakazan za {datum_i_vreme}, na adresi {adresa}. Dobićete obaveštenje kada neko potvrdi vaš termin.
+            Vaš termin u {preduzece_ime} je uspešno zakazan za {datum_i_vreme}, na adresi {adresa}. Dobićete obaveštenje kada zaposleni potvrdi Vaš termin.
             Takođe možete izmeniti vreme i datum Vašeg termina na linku ispod. Nakon izmene očekujte ponovnu potvrdu.
             https://mojtermin.site/zakazi/{vlasnik_id}/izmeni/{token}
             
@@ -358,7 +358,7 @@ def zakazi_termin():
                 <body>
                     <div class="content">
                     <h2>Poštovani,</h2>
-                    <p>Vaš termin u {preduzece_ime} je <b>uspešno zakazan</b> za <b>{datum_i_vreme}</b> na adresi <b>{adresa}</b>. Dobićete obaveštenje kada neko potvrdi vaš termin.</p>
+                    <p>Vaš termin u {preduzece_ime} je <b>uspešno zakazan</b> za <b>{datum_i_vreme}</b> na adresi <b>{adresa}</b>. Dobićete obaveštenje kada zaposleni potvrdi Vaš termin.</p>
                     <p>Takođe možete izmeniti vreme i datum Vašeg termina. Nakon izmene očekujte ponovnu potvrdu.</p>
                     <a href="https://mojtermin.site/zakazi/{vlasnik_id}/izmeni/{token}" class="btn">Izmenite termin</a>
                     <p style="margin-top: 20px;">Hvala što ste izabrali našu uslugu! Ovu uslugu je omogućio servis <b><a href="https://mojtermin.site">Moj Termin</a></b>.</p>
@@ -539,7 +539,7 @@ def izmeniTermin():
                 # Ista lokacija
                 if tip_ulaska == 2:  # Korisnik menja
                     poruka = f"""Poštovani,
-                    \nVaš termin je uspešno izmenjen za {datum_i_vreme}. Dobićete obaveštenje kada neko potvrdi vaš termin.
+                    \nVaš termin je uspešno izmenjen za {datum_i_vreme}. Dobićete obaveštenje kada zaposleni potvrdi Vaš termin.
                     \n Takođe možete izmeniti vreme i datum Vašeg termina na linku ispod. Nakon izmene očekujte ponovnu potvrdu.
                     \n https://mojtermin.site/zakazi/{data.get('id')}/izmeni/{token}
                     \n\nHvala što ste izabrali našu uslugu! Ovu uslugu je omogućio servis Moj Termin.
@@ -551,7 +551,7 @@ def izmeniTermin():
                         <body>
                             <div class="content">
                             <h2>Poštovani,</h2>
-                            <p>Vaš termin je <b>uspešno izmenjen</b> za <b>{datum_i_vreme}</b>. Dobićete obaveštenje kada neko potvrdi vaš termin.</p>
+                            <p>Vaš termin je <b>uspešno izmenjen</b> za <b>{datum_i_vreme}</b>. Dobićete obaveštenje kada zaposleni potvrdi Vaš termin.</p>
                             <p>Takođe možete izmeniti vreme i datum Vašeg termina. Nakon izmene očekujte ponovnu potvrdu.</p>
                             <a href="https://mojtermin.site/zakazi/{data.get('id')}/izmeni/{token}" class="btn">Izmenite termin</a>
                             <p style="margin-top: 20px;">Hvala što ste izabrali našu uslugu! Ovu uslugu je omogućio servis <b><a href="https://mojtermin.site">Moj Termin</a></b>.</p>
@@ -590,7 +590,7 @@ def izmeniTermin():
                     \nVaš termin u {preduzece_ime} je izmenio zaposlenik za {datum_i_vreme}.
                     \nUkoliko Vam novo vreme termina ne odgovara, možete da izmeniti ili otkazati na linku ispod.
                     \nhttps://mojtermin.site/zakazi/{data.get('id')}/izmeni/{token}
-                    \n Ukoliko menjate termin vreme termina, molimo Vas da ne zakazujete termin u vreme koje ste prvobitno odabrali.
+                    \n Ukoliko menjate vreme termina, molimo Vas da ne zakazujete termin u vreme koje ste prvobitno odabrali.
                     \n\nHvala što ste izabrali našu uslugu! Ovu uslugu je omogućio servis Moj Termin.
                     """
                     
@@ -623,7 +623,7 @@ def izmeniTermin():
                 # Promena lokacije
                 if tip_ulaska == 2:  # Korisnik menja
                     poruka = f"""Poštovani,
-                    \nVaš termin je uspešno izmenjen za {datum_i_vreme}. Dobićete obaveštenje kada neko potvrdi vaš termin.
+                    \nVaš termin je uspešno izmenjen za {datum_i_vreme}. Dobićete obaveštenje kada zaposleni potvrdi Vaš termin.
                     \n Takođe možete izmeniti vreme i datum Vašeg termina na linku ispod. Nakon izmene očekujte ponovnu potvrdu.
                     \n https://mojtermin.site/zakazi/{data.get('id')}/izmeni/{token}
                     \n\nHvala što ste izabrali našu uslugu! Ovu uslugu je omogućio servis Moj Termin.
@@ -635,7 +635,7 @@ def izmeniTermin():
                         <body>
                             <div class="content">
                             <h2>Poštovani,</h2>
-                            <p>Vaš termin je <b>uspešno izmenjen</b> za <b>{datum_i_vreme}</b>. Dobićete obaveštenje kada neko potvrdi vaš termin.</p>
+                            <p>Vaš termin je <b>uspešno izmenjen</b> za <b>{datum_i_vreme}</b>. Dobićete obaveštenje kada zaposleni potvrdi Vaš termin.</p>
                             <p>Takođe možete izmeniti vreme i datum Vašeg termina. Nakon izmene očekujte ponovnu potvrdu.</p>
                             <a href="https://mojtermin.site/zakazi/{data.get('id')}/izmeni/{token}" class="btn">Izmenite termin</a>
                             <p style="margin-top: 20px;">Hvala što ste izabrali našu uslugu! Ovu uslugu je omogućio servis <b><a href="https://mojtermin.site">Moj Termin</a></b>.</p>
