@@ -31,6 +31,14 @@ def signup():
                 "error": "Ime i email su obavezni"
             }), 400
         
+        # Validacija grada - obavezan samo ako nije vlasnik (rola != 1)
+        rola = data.get('rola', 1)
+        if rola != 1 and not data.get('grad_id'):
+            return jsonify({
+                "success": False,
+                "error": "Grad je obavezan"
+            }), 400
+        
         # Validacija šifre
         if not data.get('regPass'):
             return jsonify({
@@ -64,11 +72,11 @@ def signup():
                 INSERT INTO users (
                     username, email, brTel, password, rola, paket, 
                     zaposlen_u, istek_pretplate, ime_preduzeca, putanja_za_logo,
-                    radnoVreme, cenovnik, forma, ai_info, opis, paket_limits
+                    radnoVreme, cenovnik, forma, ai_info, opis, paket_limits, grad_id
                 ) VALUES (
                     :username, :email, :brTel, :password, :rola, :paket,
                     :zaposlen_u, :istek_pretplate, :ime_preduzeca, :putanja_za_logo,
-                    :radnoVreme, :cenovnik, :forma, :ai_info, :opis, :paket_limits
+                    :radnoVreme, :cenovnik, :forma, :ai_info, :opis, :paket_limits, :grad_id
                 )
                 RETURNING id, username, email, created_at
             """)
@@ -79,7 +87,7 @@ def signup():
                 'email': data.get('regEmail'),
                 'brTel': data.get('brTel'),
                 'password': hashed_password,
-                'rola': data.get('rola', 1),
+                'rola': rola,
                 'paket': data.get('paket', 'Personalni'),
                 'zaposlen_u': data.get('zaposlen_u', 0),
                 'istek_pretplate': data.get('istek_pretplate'),
@@ -90,7 +98,8 @@ def signup():
                 'forma': json.dumps(data.get('forma', {})),
                 'ai_info': json.dumps(data.get('ai_info', {})),
                 'opis': data.get('opis', ''),
-                'paket_limits': json.dumps(data.get('paket_limits', {}))
+                'paket_limits': json.dumps(data.get('paket_limits', {})),
+                'grad_id': data.get('grad_id')
             }
             
             # Izvršavanje queryja
@@ -399,8 +408,15 @@ def get_podesanja_data():
         current_user_id = int(get_jwt_identity())
         
         with app.app_context():
-            # Dohvatanje korisnika
-            user_query = text("SELECT id, username, email, brTel, rola, paket, zaposlen_u, ime_preduzeca, putanja_za_logo, opis, paket_limits, cenovnik, radnoVreme, id_kateg FROM users WHERE id = :id")
+            # Dohvatanje korisnika sa gradom
+            user_query = text("""
+                SELECT u.id, u.username, u.email, u.brTel, u.rola, u.paket, u.zaposlen_u, u.ime_preduzeca, 
+                       u.putanja_za_logo, u.opis, u.paket_limits, u.cenovnik, u.radnoVreme, u.id_kateg, 
+                       u.grad_id, g.grad
+                FROM users u
+                LEFT JOIN gradovi g ON u.grad_id = g.id
+                WHERE u.id = :id
+            """)
             user = db.session.execute(user_query, {'id': current_user_id}).fetchone()
             
             if not user:
@@ -429,7 +445,7 @@ def get_podesanja_data():
             if user_rola == 1:  # Vlasnik
                 # Pronalaženje svih preduzeca gde je korisnik vlasnik
                 preduzeca_query = text("""
-                    SELECT id, ime, adresa, radno_vreme, cenovnik, overlapLimit FROM preduzeca 
+                    SELECT id, ime, adresa, radno_vreme, cenovnik, overlapLimit, grad_id FROM preduzeca 
                     WHERE vlasnik = :vlasnik_id
                     ORDER BY id
                 """)
@@ -462,6 +478,7 @@ def get_podesanja_data():
                         "radno_vreme": preduzece[3] if isinstance(preduzece[3], dict) else (json.loads(preduzece[3]) if isinstance(preduzece[3], str) else {}),
                         "cenovnik": preduzece[4] if preduzece[4] else [],
                         "overlapLimit": preduzece[5],
+                        "grad_id": preduzece[6],
                         "zaposleni": zaposleni_list
                     })
         
@@ -481,7 +498,9 @@ def get_podesanja_data():
                 "paket_limits": user[10],
                 "cenovnik": user[11],
                 "radnoVreme": user[12],
-                "id_kateg": user[13]
+                "id_kateg": user[13],
+                "grad_id": user[14],
+                "grad": user[15]
             },
             "kategorije": kategorije_list,
             "preduzeca": preduzeca

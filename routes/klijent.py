@@ -22,6 +22,7 @@ def getKlijentInfo(client_id):
             "username": string,
             "email": string,
             "brTel": string,
+            "grad_id": int,
             "created_at": string (ISO format)
         },
         "termini": [
@@ -50,7 +51,7 @@ def getKlijentInfo(client_id):
         with app.app_context():
             # 1. Dohvati podatke o klijentu
             user_query = text("""
-                SELECT id, username, email, brTel, created_at
+                SELECT id, username, email, brTel, grad_id, created_at
                 FROM users
                 WHERE id = :id
             """)
@@ -62,7 +63,7 @@ def getKlijentInfo(client_id):
                     'error': 'Klijent nije pronađen'
                 }), 404
             
-            user_id, username, email, brTel, created_at = user_result
+            user_id, username, email, brTel, grad_id, created_at = user_result
             
             # 2. Dohvati sve termine koje je klijent zakazao (sa informacijama o preduzeću)
             zakazivanja_query = text("""
@@ -115,6 +116,7 @@ def getKlijentInfo(client_id):
                     'username': username,
                     'email': email,
                     'brTel': brTel,
+                    'grad_id': grad_id,
                     'created_at': str(created_at)
                 },
                 'termini': termini,
@@ -133,14 +135,15 @@ def getKlijentInfo(client_id):
 @jwt_required()
 def updateKlijentInfo(client_id):
     """
-    Ažurira informacije o klijentu (username, email, brTel).
+    Ažurira informacije o klijentu (username, email, brTel, grad_id).
     PATCH /api/klijent/{id}
     
     Request body:
     {
         "username": string (optional),
         "email": string (optional),
-        "brTel": string (optional)
+        "brTel": string (optional),
+        "grad_id": int (optional)
     }
     """
     try:
@@ -149,10 +152,10 @@ def updateKlijentInfo(client_id):
         data = request.get_json() or {}
         
         # Validacija - bar jedno polje mora biti dostavljeno
-        if not data or not any(key in data for key in ['username', 'email', 'brTel']):
+        if not data or not any(key in data for key in ['username', 'email', 'brTel', 'grad_id']):
             return jsonify({
                 'status': 400,
-                'error': 'Bar jedno polje (username, email ili brTel) je obavezno'
+                'error': 'Bar jedno polje (username, email, brTel ili grad_id) je obavezno'
             }), 400
         
         with app.app_context():
@@ -183,12 +186,16 @@ def updateKlijentInfo(client_id):
                     update_fields.append('brTel = :brTel')
                     params['brTel'] = data['brTel']
                 
+                if 'grad_id' in data and data['grad_id'] is not None:
+                    update_fields.append('grad_id = :grad_id')
+                    params['grad_id'] = data['grad_id']
+                
                 # 3. Izvršavanje update-a
                 update_query = text(f"""
                     UPDATE users
                     SET {', '.join(update_fields)}
                     WHERE id = :id
-                    RETURNING id, username, email, brTel, created_at
+                    RETURNING id, username, email, brTel, grad_id, created_at
                 """)
                 
                 result = db.session.execute(update_query, params).fetchone()
@@ -199,7 +206,7 @@ def updateKlijentInfo(client_id):
                         'error': 'Greška pri ažuriranju'
                     }), 404
                 
-                user_id, username, email, brTel, created_at = result
+                user_id, username, email, brTel, grad_id, created_at = result
                 
                 # 4. Vrati update-ovane podatke
                 return jsonify({
@@ -210,6 +217,7 @@ def updateKlijentInfo(client_id):
                         'username': username,
                         'email': email,
                         'brTel': brTel,
+                        'grad_id': grad_id,
                         'created_at': str(created_at)
                     }
                 }), 200

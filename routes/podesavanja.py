@@ -35,15 +35,22 @@ def dodaj_lokaciju(vlasnik_id):
                 "error": "Ime lokacije i adresa su obavezni"
             }), 400
         
+        # Validacija grada
+        if not data.get('grad_id'):
+            return jsonify({
+                "success": False,
+                "error": "Grad je obavezan"
+            }), 400
+        
         with app.app_context():
             # SQL INSERT query
             insert_query = text("""
                 INSERT INTO preduzeca (
-                    vlasnik, ime, adresa, radno_vreme, cenovnik, created_at
+                    vlasnik, ime, adresa, radno_vreme, cenovnik, grad_id, created_at
                 ) VALUES (
-                    :vlasnik, :ime, :adresa, :radno_vreme, :cenovnik, :created_at
+                    :vlasnik, :ime, :adresa, :radno_vreme, :cenovnik, :grad_id, :created_at
                 )
-                RETURNING id, vlasnik, ime, adresa, radno_vreme, cenovnik, created_at
+                RETURNING id, vlasnik, ime, adresa, radno_vreme, cenovnik, grad_id, created_at
             """)
             
             params = {
@@ -52,6 +59,7 @@ def dodaj_lokaciju(vlasnik_id):
                 'adresa': data.get('adresa', '').strip(),
                 'radno_vreme': json.dumps(data.get('radno_vreme', {})),
                 'cenovnik': json.dumps(data.get('cenovnik', [])),
+                'grad_id': data.get('grad_id'),
                 'created_at': datetime.utcnow()
             }
             
@@ -68,7 +76,8 @@ def dodaj_lokaciju(vlasnik_id):
                 "adresa": result[3],
                 "radno_vreme": result[4] if result[4] else {},
                 "cenovnik": result[5] if result[5] else [],
-                "created_at": str(result[6])
+                "grad_id": result[6],
+                "created_at": str(result[7])
             }
         }), 201
         
@@ -197,16 +206,17 @@ def izmeni_lokaciju(idLokacije):
             # SQL UPDATE query
             update_query = text("""
                 UPDATE preduzeca 
-                SET ime = :ime, adresa = :adresa, overlapLimit = :overlapLimit
+                SET ime = :ime, adresa = :adresa, overlapLimit = :overlapLimit, grad_id = :grad_id
                 WHERE id = :id
-                RETURNING id, vlasnik, ime, adresa, radno_vreme, cenovnik, overlapLimit
+                RETURNING id, vlasnik, ime, adresa, radno_vreme, cenovnik, overlapLimit, grad_id
             """)
             
             params = {
                 'id': idLokacije,
                 'ime': data.get('ime', '').strip(),
                 'adresa': data.get('adresa', '').strip(),
-                'overlapLimit': data.get('overlapLimit', 1)
+                'overlapLimit': data.get('overlapLimit', 1),
+                'grad_id': data.get('grad_id')
             }
             
             result = db.session.execute(update_query, params).fetchone()
@@ -221,7 +231,8 @@ def izmeni_lokaciju(idLokacije):
                 "adresa": result[3],
                 "radno_vreme": result[4] if result[4] else {},
                 "cenovnik": result[5] if result[5] else [],
-                "overlapLimit": result[6]
+                "overlapLimit": result[6],
+                "grad_id": result[7]
             }
         }), 200
         
@@ -458,4 +469,76 @@ def update_radno_vreme():
         return jsonify({
             "success": False,
             "message": str(e)
+        }), 500
+
+
+@podesavnja_bp.route('/gradovi', methods=['GET'])
+def get_gradovi():
+    """Endpoint za preuzimanje liste svih dostupnih gradova"""
+    try:
+        from app import db, app
+        
+        with app.app_context():
+            # Dohvatanje svih gradova iz baze
+            query = text("""
+                SELECT id, grad
+                FROM gradovi
+                ORDER BY grad
+            """)
+            
+            result = db.session.execute(query).fetchall()
+            
+            gradovi_list = [
+                {
+                    "id": row[0],
+                    "grad": row[1]
+                }
+                for row in result
+            ]
+        
+        return jsonify({
+            "success": True,
+            "gradovi": gradovi_list
+        }), 200
+        
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+@podesavnja_bp.route('/korisnik-grad', methods=['GET'])
+@jwt_required()
+def get_korisnik_grad():
+    """Endpoint za preuzimanje grada prijavljivog korisnika"""
+    try:
+        from app import db, app
+        
+        # Dohvatanje ID-a iz JWT tokena
+        current_user_id = int(get_jwt_identity())
+        
+        with app.app_context():
+            # Dohvatanje korisnika i njegovog grada
+            query = text("""
+                SELECT id, grad_id FROM users WHERE id = :id
+            """)
+            
+            result = db.session.execute(query, {'id': current_user_id}).fetchone()
+            
+            if not result:
+                return jsonify({
+                    "success": False,
+                    "error": "Korisnik nije pronađen"
+                }), 404
+        
+        return jsonify({
+            "success": True,
+            "grad_id": result[1]
+        }), 200
+        
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
         }), 500

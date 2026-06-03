@@ -3,6 +3,7 @@
 /backend_tools/__pycache__
 /backend_tools/chats
 /backend_tools/ai_usage
+/backend_tools/add_grad_column.py
 
 /ai/__pycache__
 /ai/__pycache__/askAI.cpython-313.pyc
@@ -18,3 +19,4 @@ appStari.py
 .env*
 
 ASYNC_EMAIL_README.md
+GRADOVI_PRETRAGE_README.md

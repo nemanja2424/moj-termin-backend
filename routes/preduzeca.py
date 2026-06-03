@@ -11,19 +11,37 @@ def get_preduzeca_list():
     try:
         from app import db, app
         
+        # Dohvatanje opcionalnog query parametra za filtriranje po gradu
+        grad_id = request.args.get('grad_id', type=int)
+        
         with app.app_context():
-            # Dohvatanje vlasnika sa njihovim podacima
-            # Sortiranje: prvo sponzorisani (koji imaju tekst), zatim ostali
-            query = text("""
-                SELECT id, ime_preduzeca, putanja_za_logo, opis, id_kateg, sponzorisano
-                FROM users
-                WHERE rola = 1
-                AND ime_preduzeca IS NOT NULL
-                AND ime_preduzeca <> ''
-                ORDER BY 
-                    CASE WHEN sponzorisano IS NOT NULL AND sponzorisano <> '' THEN 0 ELSE 1 END,
-                    id;
-            """)
+            # Pronalaženje svih korisnika (vlasnika) koji imaju preduzeća
+            # Ako je grad_id prosleđen, prikazujem samo one koji imaju preduzeće u tom gradu
+            base_query = """
+                SELECT DISTINCT
+                    u.id, 
+                    u.ime_preduzeca, 
+                    u.putanja_za_logo, 
+                    u.opis, 
+                    u.id_kateg, 
+                    u.sponzorisano,
+                    CASE WHEN u.sponzorisano IS NOT NULL AND u.sponzorisano <> '' THEN 0 ELSE 1 END as sort_priority
+                FROM users u
+                INNER JOIN preduzeca p ON u.id = p.vlasnik
+                WHERE u.rola = 1
+                AND u.ime_preduzeca IS NOT NULL
+                AND u.ime_preduzeca <> ''
+            """
+            
+            # Dodaj uslov za grad ako je prosleđen
+            if grad_id:
+                base_query += f" AND p.grad_id = {grad_id}"
+            
+            base_query += """
+                ORDER BY sort_priority, u.id
+            """
+            
+            query = text(base_query)
             results = db.session.execute(query).fetchall()
             
             preduzeca_list = []
