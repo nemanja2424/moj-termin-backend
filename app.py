@@ -92,6 +92,9 @@ app.register_blueprint(zakazivanja_bp, url_prefix="/api/zakazivanja")
 from routes.preduzeca import preduzeca_bp
 app.register_blueprint(preduzeca_bp, url_prefix="/api/preduzeca")
 
+from routes.lokacija import lokacija_bp
+app.register_blueprint(lokacija_bp, url_prefix="/api/lokacija")
+
 from routes.klijent import klijent_bp
 app.register_blueprint(klijent_bp, url_prefix="/api/klijent")
 
