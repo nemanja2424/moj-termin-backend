@@ -15,6 +15,37 @@ def auth_test():
     return jsonify({"message": "auth radi"})
 
 
+@auth_bp.route('/provera', methods=['GET'])
+@jwt_required()
+def provera():
+    try:
+        from app import db, app
+
+        current_user_id = int(get_jwt_identity())
+
+        with app.app_context():
+            query = text("SELECT id, rola FROM users WHERE id = :id")
+            user = db.session.execute(query, {'id': current_user_id}).fetchone()
+
+            if not user:
+                return jsonify({
+                    "success": False,
+                    "message": "Korisnik nije pronađen"
+                }), 404
+
+        return jsonify({
+            "success": True,
+            "id": user[0],
+            "rola": user[1]
+        }), 200
+
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
 @auth_bp.route('/signup', methods=['POST'])
 def signup():
     try:
